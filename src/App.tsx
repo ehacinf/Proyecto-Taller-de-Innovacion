@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { db } from "./firebase";
+import logoMark from "./assets/simpligest-mark.svg";
 import {
   collection,
   addDoc,
@@ -81,10 +82,19 @@ function App() {
       {/* SIDEBAR */}
       <aside className="w-64 bg-primary text-white flex flex-col">
         <div className="px-6 py-4 border-b border-white/10">
-          <h1 className="text-2xl font-bold tracking-tight">SimpliGest</h1>
-          <p className="text-sm text-primaryLight/90">
-            Simple como Excel, potente como un ERP.
-          </p>
+          <div className="flex items-center gap-3">
+            <img
+              src={logoMark}
+              alt="Logotipo de SimpliGest"
+              className="w-12 h-12 rounded-2xl shadow-lg shadow-primary/40"
+            />
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">SimpliGest</h1>
+              <p className="text-sm text-primaryLight/90">
+                Simple como Excel, potente como un ERP.
+              </p>
+            </div>
+          </div>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-2 text-sm">

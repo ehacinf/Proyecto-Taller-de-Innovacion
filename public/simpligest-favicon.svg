@@ -1,0 +1,6 @@
+<svg width="256" height="256" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SimpliGest favicon">
+  <rect width="512" height="512" rx="120" fill="#f7f1e6"/>
+  <path d="M256 72l160 92v184L256 440 96 348V164z" fill="#0f2733"/>
+  <path d="M248 164h-64l-24 40 60 34 28-47h32l28 47 60-34-24-40h-64z" fill="#0f2733"/>
+  <path d="M312 124H216l-32 56 72 42 32-55h24l32 55 72-42z" fill="#00a0b0"/>
+</svg>

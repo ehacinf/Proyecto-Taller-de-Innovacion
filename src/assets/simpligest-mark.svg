@@ -1,0 +1,15 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SimpliGest hexagon logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7f1e6" />
+      <stop offset="100%" stop-color="#efe5d3" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)" />
+  <path d="M256 44l176 102v220L256 468 80 366V146z" fill="#0f2733"/>
+  <path d="M256 90l136 79v174l-136 79-136-79V169z" fill="#142c3a"/>
+  <path d="M327 157h-98l-44 75 71 41 44-76h27l44 76 72-41-44-75z" fill="#0f2733"/>
+  <path d="M271 220l-71-41 44-76h98z" fill="#00a0b0"/>
+  <path d="M241 261l-115-66v132l130 76V261z" fill="#0b1f29"/>
+  <path d="M271 261v142l130-76V195l-72 41z" fill="#06141d"/>
+</svg>
