@@ -1,12 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { db } from "./firebase";
 import {
   collection,
   addDoc,
   onSnapshot,
   query,
   orderBy,
+  where,
 } from "firebase/firestore";
+import type { User } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
+
+import { auth, db } from "./firebase";
 
 /* -----------------------------------------------------------
    TIPOS
@@ -21,24 +30,79 @@ type Product = {
   stock: number;
   proveedor: string;
   costo: number;
+  userId: string;
 };
 
+type MainAppProps = {
+  user: User;
+  onSignOut: () => Promise<void> | void;
+};
+
+type FirestoreProduct = Omit<Product, "id">;
+
 /* -----------------------------------------------------------
-   COMPONENTE PRINCIPAL
+   COMPONENTE PRINCIPAL (AUTH)
 ----------------------------------------------------------- */
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  async function handleSignIn() {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  }
+
+  function handleSignOut() {
+    return signOut(auth);
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-softGray text-primary">
+        Cargando SimpliGest...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <SignInScreen onSignIn={handleSignIn} />;
+  }
+
+  return <MainApp user={user} onSignOut={handleSignOut} />;
+}
+
+/* -----------------------------------------------------------
+   APLICACIÓN PRINCIPAL (MAIN)
+----------------------------------------------------------- */
+
+function MainApp({ user, onSignOut }: MainAppProps) {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
 
-  // Escuchar cambios en Firestore (realtime)
   useEffect(() => {
-    const q = query(collection(db, "products"), orderBy("nombre", "asc"));
+    setLoadingProducts(true);
+
+    const productsRef = collection(db, "products");
+    const q = query(
+      productsRef,
+      where("userId", "==", user.uid),
+      orderBy("nombre", "asc")
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: Product[] = snapshot.docs.map((doc) => {
-        const d = doc.data() as Omit<Product, "id">;
+        const d = doc.data() as FirestoreProduct;
         return {
           id: doc.id,
           nombre: d.nombre,
@@ -46,18 +110,21 @@ function App() {
           stock: d.stock,
           proveedor: d.proveedor,
           costo: d.costo,
+          userId: d.userId,
         };
       });
       setProducts(data);
       setLoadingProducts(false);
     });
 
-    // limpiar listener
     return () => unsubscribe();
-  }, []);
+  }, [user.uid]);
 
-  async function handleAddProduct(product: Omit<Product, "id">) {
-    await addDoc(collection(db, "products"), product);
+  async function handleAddProduct(product: Omit<Product, "id" | "userId">) {
+    await addDoc(collection(db, "products"), {
+      ...product,
+      userId: user.uid,
+    });
   }
 
   return (
@@ -119,6 +186,12 @@ function App() {
             />
             <button className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition">
               + Venta rápida
+            </button>
+            <button
+              onClick={onSignOut}
+              className="text-xs text-gray-500 hover:text-primary"
+            >
+              Cerrar sesión
             </button>
           </div>
         </header>
@@ -241,8 +314,8 @@ function Dashboard() {
               inventario para 45 días.
             </li>
             <li className="bg-softGray rounded-xl px-3 py-2">
-              🧾 Tu mejor proveedor este mes:{" "}
-              <strong>Distribuidora Sur</strong> (mejor margen promedio).
+              🧾 Tu mejor proveedor este mes: <strong>Distribuidora Sur</strong>
+              (mejor margen promedio).
             </li>
           </ul>
 
@@ -261,7 +334,7 @@ function Dashboard() {
 
 type InventoryPageProps = {
   products: Product[];
-  onAddProduct: (product: Omit<Product, "id">) => Promise<void>;
+  onAddProduct: (product: Omit<Product, "id" | "userId">) => Promise<void>;
   loading: boolean;
 };
 
@@ -288,7 +361,6 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
       proveedor,
       stock,
       costo,
-      id: "" as never, // no se usa, Firestore genera el id
     });
 
     form.reset();
@@ -370,9 +442,7 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
 
       {/* TABLA DE PRODUCTOS */}
       <div className="bg-white rounded-2xl shadow-sm p-4 lg:col-span-2 overflow-auto">
-        <h3 className="font-semibold mb-1 text-primary">
-          Listado de productos
-        </h3>
+        <h3 className="font-semibold mb-1 text-primary">Listado de productos</h3>
         <p className="text-xs text-gray-500 mb-3">
           Vista general del inventario actual.
         </p>
@@ -381,8 +451,7 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
           <p className="text-xs text-gray-500">Cargando productos...</p>
         ) : products.length === 0 ? (
           <p className="text-xs text-gray-500">
-            Aún no hay productos. Agrega el primero con el formulario de la
-            izquierda.
+            Aún no hay productos. Agrega el primero con el formulario de la izquierda.
           </p>
         ) : (
           <table className="w-full text-xs">
@@ -496,6 +565,33 @@ function TableRow({
       <td className="py-2">{proveedor || "-"}</td>
       <td className="py-2 text-right">{costo}</td>
     </tr>
+  );
+}
+
+/* -----------------------------------------------------------
+   PANTALLA DE LOGIN
+----------------------------------------------------------- */
+
+type SignInScreenProps = {
+  onSignIn: () => Promise<void>;
+};
+
+function SignInScreen({ onSignIn }: SignInScreenProps) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-softGray px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-6 w-full max-w-md text-center space-y-4">
+        <h1 className="text-2xl font-semibold text-primary">SimpliGest</h1>
+        <p className="text-sm text-gray-500">
+          Inicia sesión para administrar tu inventario y finanzas.
+        </p>
+        <button
+          onClick={onSignIn}
+          className="w-full bg-primary text-white py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition"
+        >
+          Continuar con Google
+        </button>
+      </div>
+    </div>
   );
 }
 
