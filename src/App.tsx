@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { db } from "./firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import type { User } from "firebase/auth";
+import AuthPage from "./AuthPage";
+import { auth, db } from "./firebase";
 import logoMark from "./assets/simpligest-mark.svg";
 import {
   collection,
@@ -32,19 +35,37 @@ type Product = {
 ----------------------------------------------------------- */
 
 function App() {
-  const [activePage, setActivePage] = useState<ActivePage>("inicio");
+  const [activePage, setActivePage] = useState<ActivePage>("dashboard");
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Escuchar cambios en Firestore (realtime)
   useEffect(() => {
+    if (!user) {
+      setProducts([]);
+      setLoadingProducts(false);
+      return;
+    }
+
+    setLoadingProducts(true);
     const q = query(collection(db, "products"), orderBy("nombre", "asc"));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data: Product[] = snapshot.docs.map((doc) => {
-        const d = doc.data() as Omit<Product, "id">;
+      const data: Product[] = snapshot.docs.map((docSnapshot) => {
+        const d = docSnapshot.data() as Omit<Product, "id">;
         return {
-          id: doc.id,
+          id: docSnapshot.id,
           nombre: d.nombre,
           categoria: d.categoria,
           stock: d.stock,
@@ -58,7 +79,7 @@ function App() {
 
     // limpiar listener
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   async function handleAddProduct(product: Omit<Product, "id">) {
     await addDoc(collection(db, "products"), product);
@@ -79,6 +100,30 @@ function App() {
 
   function handleOpenDemo() {
     setActivePage("dashboard");
+  }
+
+  async function handleSignOut() {
+    try {
+      await signOut(auth);
+      setActivePage("dashboard");
+    } catch (error) {
+      console.error("Error al cerrar sesión", error);
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-softGray">
+        <div className="text-center space-y-2">
+          <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-gray-500">Cargando SimpliGest...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage />;
   }
 
   return (
@@ -138,14 +183,14 @@ function App() {
           <div>
             <h2 className="text-lg font-semibold text-primary">
               {activePage === "inicio"
-                ? "Regístrate para recibir la demo privada"
+                ? "Tu cockpit central"
                 : activePage === "dashboard"
                 ? "Dashboard General"
                 : "Inventario"}
             </h2>
             <p className="text-xs text-gray-500">
               {activePage === "inicio"
-                ? "Completa el formulario y agenda una llamada con nuestro equipo."
+                ? "Accede a resúmenes clave y sigue optimizando tu operación."
                 : activePage === "dashboard"
                 ? "Controla inventario, finanzas y ventas desde un solo lugar."
                 : "Administra tus productos, stock y proveedores."}
@@ -177,13 +222,27 @@ function App() {
                 </button>
               </>
             )}
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <div className="text-right hidden sm:block">
+                <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                  Sesión activa
+                </p>
+                <p className="font-semibold text-primary">{user.email}</p>
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="text-xs px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-softGray"
+              >
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         </header>
 
         {/* CONTENT AREA */}
         <main className="flex-1 p-6 space-y-6">
           {activePage === "inicio" ? (
-            <LandingPage onShowDemo={handleOpenDemo} />
+            <HomePage onShowDemo={handleOpenDemo} />
           ) : activePage === "dashboard" ? (
             <Dashboard />
           ) : (
@@ -202,251 +261,83 @@ function App() {
 }
 
 /* -----------------------------------------------------------
-   LANDING PAGE
+   HOME PAGE
 ----------------------------------------------------------- */
 
-type LandingPageProps = {
+type HomePageProps = {
   onShowDemo: () => void;
 };
 
-type LeadFormState = {
-  nombre: string;
-  email: string;
-  negocio: string;
-  tamano: string;
-};
-
-function LandingPage({ onShowDemo }: LandingPageProps) {
-  const initialLeadState: LeadFormState = {
-    nombre: "",
-    email: "",
-    negocio: "",
-    tamano: "1-5 colaboradores",
-  };
-
-  const [leadForm, setLeadForm] = useState(initialLeadState);
-  const [submitting, setSubmitting] = useState(false);
-  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
-
-  const benefits = [
+function HomePage({ onShowDemo }: HomePageProps) {
+  const quickStats = [
     {
-      title: "Inventario inteligente",
-      description:
-        "Alertas de stock crítico y recomendaciones automáticas para comprar a tiempo.",
+      title: "Inventario sincronizado",
+      description: "Conecta tus bodegas y sucursales en tiempo real.",
     },
     {
       title: "Finanzas claras",
-      description:
-        "Conecta ventas, compras y flujo de caja para saber exactamente cómo va tu negocio.",
+      description: "Cruza compras, ventas y gastos automáticamente.",
     },
     {
-      title: "IA como copiloto",
-      description:
-        "Predicciones de demanda, sugerencias de precios y respuestas automáticas a tus dudas.",
+      title: "Copiloto de IA",
+      description: "Recibe alertas de stock crítico y márgenes negativos.",
     },
   ];
-
-  const steps = [
-    {
-      number: "01",
-      title: "Completa tus datos",
-      description: "Cuéntanos sobre tu negocio para personalizar el onboarding.",
-    },
-    {
-      number: "02",
-      title: "Recibe la demo guiada",
-      description: "Un asesor te mostrará cómo usar SimpliGest en menos de 20 minutos.",
-    },
-    {
-      number: "03",
-      title: "Activa tu cuenta",
-      description: "Migra tu inventario, configura permisos y comienza a vender sin fricción.",
-    },
-  ];
-
-  function handleLeadChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) {
-    const { name, value } = e.target;
-    setLeadForm((prev) => ({ ...prev, [name]: value }));
-  }
-
-  async function handleLeadSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (submitting) return;
-    setSubmitting(true);
-    setStatus("idle");
-
-    try {
-      await addDoc(collection(db, "preRegistrations"), {
-        ...leadForm,
-        createdAt: new Date().toISOString(),
-        origen: "landing",
-      });
-      setLeadForm(initialLeadState);
-      setStatus("success");
-    } catch (error) {
-      console.error("Error guardando registro", error);
-      setStatus("error");
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
-    <div className="space-y-8">
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primaryLight text-white p-6 md:p-10 shadow-lg">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 items-center">
-          <div className="lg:col-span-3 space-y-4">
-            <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/80 bg-white/10 border border-white/20 px-4 py-1 rounded-full">
-              Lanzamiento beta · Cupos limitados
-            </span>
-            <h1 className="text-3xl md:text-4xl font-bold leading-tight">
-              Gestiona inventario, ventas y finanzas en una sola pantalla.
-            </h1>
-            <p className="text-sm md:text-base text-white/90 max-w-2xl">
-              SimpliGest automatiza los procesos aburridos para que te concentres en vender. Regístrate y recibe una demo privada con un asesor especializado en retail, gastronomía o servicios.
-            </p>
-            <ul className="space-y-2 text-sm text-white/90">
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-2 w-2 rounded-full bg-white"></span>
-                Migramos tus planillas de Excel sin costo adicional.
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-2 w-2 rounded-full bg-white"></span>
-                Capacitación 1 a 1 para tu equipo en menos de una semana.
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-2 w-2 rounded-full bg-white"></span>
-                IA integrada para detectar quiebres de stock y márgenes negativos.
-              </li>
-            </ul>
-
-            <div className="flex flex-wrap gap-3 pt-4">
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-5 py-4">
-                <p className="text-3xl font-semibold">8.000+</p>
-                <p className="text-xs text-white/80">Productos gestionados durante la beta.</p>
-              </div>
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-5 py-4">
-                <p className="text-3xl font-semibold">98%</p>
-                <p className="text-xs text-white/80">Usuarios recomiendan SimpliGest.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={onShowDemo}
-                className="bg-white text-primary font-semibold px-6 py-3 rounded-2xl shadow-md hover:opacity-90 transition"
-              >
-                Ver producto en vivo
-              </button>
-              <button className="bg-transparent border border-white/40 px-6 py-3 rounded-2xl text-white/90 text-sm hover:bg-white/10 transition">
-                Descargar brochure
-              </button>
-            </div>
-          </div>
-
-          <form
-            onSubmit={handleLeadSubmit}
-            className="lg:col-span-2 bg-white rounded-3xl p-6 shadow-2xl text-sm space-y-4"
-          >
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-primary">Registro prioritario</p>
-              <h2 className="text-2xl font-semibold text-primary mt-1">
-                Agenda tu demo personalizada
-              </h2>
-              <p className="text-gray-500 text-xs">
-                Respondemos en menos de 24 horas hábiles.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-gray-600 text-xs block mb-1">Nombre y apellido *</label>
-                <input
-                  name="nombre"
-                  type="text"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                  placeholder="Camila Torres"
-                  value={leadForm.nombre}
-                  onChange={handleLeadChange}
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-gray-600 text-xs block mb-1">Correo electrónico *</label>
-                <input
-                  name="email"
-                  type="email"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                  placeholder="hola@tuempresa.com"
-                  value={leadForm.email}
-                  onChange={handleLeadChange}
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-gray-600 text-xs block mb-1">Nombre del negocio</label>
-                <input
-                  name="negocio"
-                  type="text"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                  placeholder="Mini Market Los Andes"
-                  value={leadForm.negocio}
-                  onChange={handleLeadChange}
-                />
-              </div>
-              <div>
-                <label className="text-gray-600 text-xs block mb-1">Tamaño del equipo</label>
-                <select
-                  name="tamano"
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                  value={leadForm.tamano}
-                  onChange={handleLeadChange}
-                >
-                  <option>1-5 colaboradores</option>
-                  <option>6-20 colaboradores</option>
-                  <option>21-50 colaboradores</option>
-                  <option>Más de 50 colaboradores</option>
-                </select>
-              </div>
-            </div>
-
+    <div className="space-y-6">
+      <section className="bg-white rounded-3xl shadow-sm p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          <p className="text-xs uppercase tracking-[0.3em] text-primary">
+            Bienvenido a SimpliGest
+          </p>
+          <h2 className="text-3xl font-semibold text-primary">
+            Toda tu operación, alineada.
+          </h2>
+          <p className="text-sm text-gray-600">
+            Visualiza ventas, inventario y tesorería desde un solo lugar. Usa el menú
+            lateral para explorar módulos o salta directo al dashboard general.
+          </p>
+          <div className="flex flex-wrap gap-3">
             <button
-              type="submit"
-              disabled={submitting}
-              className="w-full bg-primary text-white py-3 rounded-2xl font-semibold hover:opacity-90 transition disabled:opacity-60"
+              onClick={onShowDemo}
+              className="bg-primary text-white px-6 py-3 rounded-2xl text-sm font-semibold hover:opacity-90 transition"
             >
-              {submitting ? "Enviando..." : "Quiero registrarme"}
+              Ir al dashboard
             </button>
-
-            {status === "success" && (
-              <p className="text-green-600 text-xs">¡Gracias! Te contactaremos en breve.</p>
-            )}
-            {status === "error" && (
-              <p className="text-red-500 text-xs">
-                Ocurrió un problema al guardar tus datos. Intenta nuevamente.
-              </p>
-            )}
-          </form>
+            <button className="border border-gray-200 px-6 py-3 rounded-2xl text-sm text-gray-600 hover:bg-softGray">
+              Ver historial de cambios
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-softGray rounded-2xl p-4">
+            <p className="text-xs text-gray-500">Ventas hoy</p>
+            <p className="text-2xl font-semibold text-primary">$ 452.300</p>
+            <p className="text-[11px] text-green-600">+12% vs. ayer</p>
+          </div>
+          <div className="bg-softGray rounded-2xl p-4">
+            <p className="text-xs text-gray-500">Productos con stock crítico</p>
+            <p className="text-2xl font-semibold text-primary">7</p>
+            <p className="text-[11px] text-gray-500">Revísalos en Inventario</p>
+          </div>
+          <div className="bg-softGray rounded-2xl p-4">
+            <p className="text-xs text-gray-500">Tickets abiertos</p>
+            <p className="text-2xl font-semibold text-primary">3</p>
+            <p className="text-[11px] text-gray-500">Soporte responde en 2h</p>
+          </div>
+          <div className="bg-softGray rounded-2xl p-4">
+            <p className="text-xs text-gray-500">Última sincronización</p>
+            <p className="text-2xl font-semibold text-primary">Hace 5 min</p>
+            <p className="text-[11px] text-gray-500">Todo funcionando ✅</p>
+          </div>
         </div>
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {benefits.map((benefit) => (
+        {quickStats.map((benefit) => (
           <BenefitCard key={benefit.title} {...benefit} />
         ))}
-      </section>
-
-      <section className="bg-white rounded-3xl shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-primary mb-4">
-          ¿Cómo funciona el registro?
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {steps.map((step) => (
-            <StepCard key={step.number} {...step} />
-          ))}
-        </div>
       </section>
     </div>
   );
@@ -982,24 +873,6 @@ function BenefitCard({ title, description }: BenefitCardProps) {
     <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100">
       <h4 className="text-base font-semibold text-primary mb-2">{title}</h4>
       <p className="text-sm text-gray-600">{description}</p>
-    </div>
-  );
-}
-
-type StepCardProps = {
-  number: string;
-  title: string;
-  description: string;
-};
-
-function StepCard({ number, title, description }: StepCardProps) {
-  return (
-    <div className="border border-gray-100 rounded-3xl p-5 flex gap-4 bg-softGray/60">
-      <div className="text-primary font-semibold text-lg">{number}</div>
-      <div>
-        <h5 className="text-sm font-semibold text-primary mb-1">{title}</h5>
-        <p className="text-xs text-gray-600">{description}</p>
-      </div>
     </div>
   );
 }
