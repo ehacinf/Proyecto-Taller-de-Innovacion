@@ -6,6 +6,9 @@ import {
   onSnapshot,
   query,
   orderBy,
+  updateDoc,
+  deleteDoc,
+  doc,
 } from "firebase/firestore";
 
 /* -----------------------------------------------------------
@@ -58,6 +61,19 @@ function App() {
 
   async function handleAddProduct(product: Omit<Product, "id">) {
     await addDoc(collection(db, "products"), product);
+  }
+
+  async function handleUpdateProduct(
+    id: string,
+    product: Omit<Product, "id">
+  ) {
+    const productRef = doc(db, "products", id);
+    await updateDoc(productRef, product);
+  }
+
+  async function handleDeleteProduct(id: string) {
+    const productRef = doc(db, "products", id);
+    await deleteDoc(productRef);
   }
 
   return (
@@ -131,6 +147,8 @@ function App() {
             <InventoryPage
               products={products}
               onAddProduct={handleAddProduct}
+              onUpdateProduct={handleUpdateProduct}
+              onDeleteProduct={handleDeleteProduct}
               loading={loadingProducts}
             />
           )}
@@ -262,44 +280,117 @@ function Dashboard() {
 type InventoryPageProps = {
   products: Product[];
   onAddProduct: (product: Omit<Product, "id">) => Promise<void>;
+  onUpdateProduct: (id: string, product: Omit<Product, "id">) => Promise<void>;
+  onDeleteProduct: (id: string) => Promise<void>;
   loading: boolean;
 };
 
-function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) {
+function InventoryPage({
+  products,
+  onAddProduct,
+  onUpdateProduct,
+  onDeleteProduct,
+  loading,
+}: InventoryPageProps) {
+  const initialFormState = {
+    nombre: "",
+    categoria: "",
+    proveedor: "",
+    stock: "",
+    costo: "",
+  };
+
+  const [formValues, setFormValues] = useState(initialFormState);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("todos");
+  const [stockFilter, setStockFilter] = useState("todos");
+
+  useEffect(() => {
+    if (editingProduct) {
+      setFormValues({
+        nombre: editingProduct.nombre,
+        categoria: editingProduct.categoria,
+        proveedor: editingProduct.proveedor,
+        stock: editingProduct.stock.toString(),
+        costo: editingProduct.costo.toString(),
+      });
+    } else {
+      setFormValues(initialFormState);
+    }
+  }, [editingProduct]);
+
+  const categories = Array.from(new Set(products.map((p) => p.categoria)));
+
+  const filteredProducts = products.filter((p) => {
+    const matchesSearch = p.nombre
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const matchesCategory =
+      categoryFilter === "todos" || p.categoria === categoryFilter;
+    const matchesStock =
+      stockFilter === "todos"
+        ? true
+        : stockFilter === "critico"
+        ? p.stock > 0 && p.stock <= 5
+        : p.stock === 0;
+
+    return matchesSearch && matchesCategory && matchesStock;
+  });
+
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) {
+    const { name, value } = e.target;
+    setFormValues((prev) => ({ ...prev, [name]: value }));
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    const formData = new FormData(form);
+    const nombre = formValues.nombre.trim();
+    const categoria = formValues.categoria.trim();
+    const proveedor = formValues.proveedor.trim();
+    const stock = Number(formValues.stock || 0);
+    const costo = Number(formValues.costo || 0);
 
-    const nombre = (formData.get("nombre") as string) || "";
-    const categoria = (formData.get("categoria") as string) || "";
-    const proveedor = (formData.get("proveedor") as string) || "";
-    const stock = Number(formData.get("stock") || 0);
-    const costo = Number(formData.get("costo") || 0);
-
-    if (!nombre.trim()) {
+    if (!nombre) {
       alert("El nombre del producto es obligatorio.");
       return;
     }
 
-    await onAddProduct({
-      nombre,
-      categoria,
-      proveedor,
-      stock,
-      costo,
-    });
+    if (editingProduct) {
+      await onUpdateProduct(editingProduct.id, {
+        nombre,
+        categoria,
+        proveedor,
+        stock,
+        costo,
+      });
+      setEditingProduct(null);
+    } else {
+      await onAddProduct({
+        nombre,
+        categoria,
+        proveedor,
+        stock,
+        costo,
+      });
+    }
 
-    form.reset();
+    setFormValues(initialFormState);
   }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* FORMULARIO */}
       <div className="bg-white rounded-2xl shadow-sm p-4 lg:col-span-1">
-        <h3 className="font-semibold mb-1 text-primary">Agregar producto</h3>
+        <h3 className="font-semibold mb-1 text-primary">
+          {editingProduct ? "Editar producto" : "Agregar producto"}
+        </h3>
         <p className="text-xs text-gray-500 mb-3">
-          Registra un nuevo producto en tu inventario (guardado en la nube 🔐).
+          {editingProduct
+            ? "Actualiza los datos del producto seleccionado."
+            : "Registra un nuevo producto en tu inventario (guardado en la nube 🔐)."}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
@@ -311,6 +402,8 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
               className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
               placeholder="Ej: Pan de molde 1kg"
               required
+              value={formValues.nombre}
+              onChange={handleChange}
             />
           </div>
 
@@ -321,6 +414,8 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
               type="text"
               className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
               placeholder="Ej: Alimentos, Bebidas..."
+              value={formValues.categoria}
+              onChange={handleChange}
             />
           </div>
 
@@ -331,6 +426,8 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
               type="text"
               className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
               placeholder="Ej: Distribuidora Sur"
+              value={formValues.proveedor}
+              onChange={handleChange}
             />
           </div>
 
@@ -343,6 +440,8 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
                 min={0}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
                 placeholder="Ej: 10"
+                value={formValues.stock}
+                onChange={handleChange}
               />
             </div>
 
@@ -354,34 +453,82 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
                 min={0}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
                 placeholder="Ej: 1200"
+                value={formValues.costo}
+                onChange={handleChange}
               />
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="w-full mt-2 bg-success text-white py-2 rounded-xl text-xs font-semibold hover:opacity-90 transition"
-          >
-            Guardar producto
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="flex-1 mt-2 bg-success text-white py-2 rounded-xl text-xs font-semibold hover:opacity-90 transition"
+            >
+              {editingProduct ? "Actualizar producto" : "Guardar producto"}
+            </button>
+            {editingProduct && (
+              <button
+                type="button"
+                onClick={() => setEditingProduct(null)}
+                className="px-4 py-2 mt-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-softGray"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
       {/* TABLA DE PRODUCTOS */}
       <div className="bg-white rounded-2xl shadow-sm p-4 lg:col-span-2 overflow-auto">
-        <h3 className="font-semibold mb-1 text-primary">
-          Listado de productos
-        </h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Vista general del inventario actual.
-        </p>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+          <div>
+            <h3 className="font-semibold mb-1 text-primary">
+              Inventario completo
+            </h3>
+            <p className="text-xs text-gray-500">
+              Control total de productos, stock y costos en tiempo real.
+            </p>
+          </div>
+          <div className="flex flex-col md:flex-row gap-2 text-xs">
+            <input
+              type="text"
+              placeholder="Buscar por nombre"
+              className="px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <select
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="todos">Todas las categorías</option>
+              {categories.map((category) => (
+                <option key={category || "sin-categoria"} value={category}>
+                  {category || "Sin categoría"}
+                </option>
+              ))}
+            </select>
+            <select
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value)}
+            >
+              <option value="todos">Todo el stock</option>
+              <option value="critico">Stock crítico (&lt;=5)</option>
+              <option value="sin-stock">Sin stock</option>
+            </select>
+          </div>
+        </div>
 
         {loading ? (
           <p className="text-xs text-gray-500">Cargando productos...</p>
-        ) : products.length === 0 ? (
+        ) : filteredProducts.length === 0 ? (
           <p className="text-xs text-gray-500">
-            Aún no hay productos. Agrega el primero con el formulario de la
-            izquierda.
+            {products.length === 0
+              ? "Aún no hay productos. Agrega el primero con el formulario de la izquierda."
+              : "No encontramos productos que coincidan con tu búsqueda."}
           </p>
         ) : (
           <table className="w-full text-xs">
@@ -392,19 +539,52 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
                 <th className="py-2">Stock</th>
                 <th className="py-2">Proveedor</th>
                 <th className="py-2 text-right">Costo</th>
+                <th className="py-2 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="text-gray-700">
-              {products.map((p) => (
-                <TableRow
-                  key={p.id}
-                  producto={p.nombre}
-                  categoria={p.categoria}
-                  stock={`${p.stock} uds`}
-                  proveedor={p.proveedor}
-                  costo={`$ ${p.costo.toLocaleString("es-CL")}`}
-                  stockCritico={p.stock > 0 && p.stock <= 5}
-                />
+              {filteredProducts.map((p) => (
+                <tr key={p.id} className="border-b last:border-b-0">
+                  <td className="py-2">{p.nombre}</td>
+                  <td className="py-2">{p.categoria || "-"}</td>
+                  <td
+                    className={`py-2 ${
+                      p.stock > 0 && p.stock <= 5
+                        ? "text-red-500 font-semibold"
+                        : ""
+                    }`}
+                  >
+                    {p.stock} uds
+                  </td>
+                  <td className="py-2">{p.proveedor || "-"}</td>
+                  <td className="py-2 text-right">
+                    $ {p.costo.toLocaleString("es-CL")}
+                  </td>
+                  <td className="py-2 text-right space-x-2">
+                    <button
+                      className="text-primaryLight hover:underline"
+                      onClick={() => setEditingProduct(p)}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className="text-red-500 hover:underline"
+                      onClick={async () => {
+                        const confirmDelete = window.confirm(
+                          `¿Eliminar ${p.nombre}?`
+                        );
+                        if (confirmDelete) {
+                          await onDeleteProduct(p.id);
+                          if (editingProduct?.id === p.id) {
+                            setEditingProduct(null);
+                          }
+                        }
+                      }}
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
