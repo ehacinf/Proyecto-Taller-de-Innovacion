@@ -1,45 +1,50 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
-import AuthPage from "./AuthPage";
-import { auth, db } from "./firebase";
-import logoMark from "./assets/simpligest-mark.svg";
 import {
-  collection,
   addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  updateDoc,
+  collection,
   deleteDoc,
   doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
 } from "firebase/firestore";
-
-/* -----------------------------------------------------------
-   TIPOS
------------------------------------------------------------ */
-
-type ActivePage = "inicio" | "dashboard" | "inventario";
-
-type Product = {
-  id: string;
-  nombre: string;
-  categoria: string;
-  stock: number;
-  proveedor: string;
-  costo: number;
-};
-
-/* -----------------------------------------------------------
-   COMPONENTE PRINCIPAL
------------------------------------------------------------ */
+import AuthPage from "./AuthPage";
+import { auth, db } from "./firebase";
+import MainLayout from "./components/Layout/MainLayout";
+import Dashboard from "./components/Dashboard/Dashboard";
+import InventoryPage from "./components/Inventory/InventoryPage";
+import QuickSaleModal from "./components/Sales/QuickSaleModal";
+import FinancePage from "./components/Finance/FinancePage";
+import type {
+  ActivePage,
+  Product,
+  ProductPayload,
+  QuickSalePayload,
+  Sale,
+  Transaction,
+  TransactionPayload,
+} from "./types";
 
 function App() {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
   const [products, setProducts] = useState<Product[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
+  const [loadingSales, setLoadingSales] = useState(true);
+  const [loadingTransactions, setLoadingTransactions] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [quickSaleOpen, setQuickSaleOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [financeError, setFinanceError] = useState<string | null>(null);
+  const [saleError, setSaleError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -50,7 +55,6 @@ function App() {
     return unsubscribe;
   }, []);
 
-  // Escuchar cambios en Firestore (realtime)
   useEffect(() => {
     if (!user) {
       setProducts([]);
@@ -61,36 +65,170 @@ function App() {
     setLoadingProducts(true);
     const q = query(collection(db, "products"), orderBy("nombre", "asc"));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data: Product[] = snapshot.docs.map((docSnapshot) => {
-        const d = docSnapshot.data() as Omit<Product, "id">;
-        return {
-          id: docSnapshot.id,
-          nombre: d.nombre,
-          categoria: d.categoria,
-          stock: d.stock,
-          proveedor: d.proveedor,
-          costo: d.costo,
-        };
-      });
-      setProducts(data);
-      setLoadingProducts(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const nextProducts: Product[] = snapshot.docs.map((docSnapshot) => {
+          const raw = docSnapshot.data() as Record<string, any>;
+          const createdAt = raw.createdAt
+            ? raw.createdAt instanceof Timestamp
+              ? raw.createdAt.toDate()
+              : new Date(raw.createdAt)
+            : null;
 
-    // limpiar listener
+          return {
+            id: docSnapshot.id,
+            name: raw.name ?? raw.nombre ?? "Producto sin nombre",
+            category: raw.category ?? raw.categoria ?? "",
+            stock: Number(raw.stock ?? 0),
+            stockMin: Number(raw.stockMin ?? raw.stock_min ?? 0),
+            purchasePrice: Number(raw.purchasePrice ?? raw.costo ?? 0),
+            salePrice: Number(raw.salePrice ?? raw.precioVenta ?? raw.costo ?? 0),
+            supplier: raw.supplier ?? raw.proveedor ?? "",
+            createdAt,
+          };
+        });
+
+        setProducts(nextProducts);
+        setInventoryError(null);
+        setLoadingProducts(false);
+      },
+      (error) => {
+        console.error("Error cargando productos", error);
+        setInventoryError("No pudimos cargar el inventario. Reintenta en unos segundos.");
+        setLoadingProducts(false);
+      }
+    );
+
     return () => unsubscribe();
   }, [user]);
 
-  async function handleAddProduct(product: Omit<Product, "id">) {
-    await addDoc(collection(db, "products"), product);
+  useEffect(() => {
+    if (!user) {
+      setSales([]);
+      setLoadingSales(false);
+      return;
+    }
+
+    setLoadingSales(true);
+    const salesQuery = query(collection(db, "sales"), orderBy("date", "desc"));
+
+    const unsubscribe = onSnapshot(
+      salesQuery,
+      (snapshot) => {
+        const nextSales: Sale[] = snapshot.docs.map((docSnapshot) => {
+          const raw = docSnapshot.data() as Record<string, any>;
+          const dateValue = raw.date
+            ? raw.date instanceof Timestamp
+              ? raw.date.toDate()
+              : new Date(raw.date)
+            : new Date();
+
+          return {
+            id: docSnapshot.id,
+            productId: raw.productId ?? "",
+            productName: raw.productName ?? "Venta",
+            quantity: Number(raw.quantity ?? 0),
+            unitPrice: Number(raw.unitPrice ?? raw.salePrice ?? 0),
+            total: Number(raw.total ?? 0),
+            date: dateValue,
+          };
+        });
+
+        setSales(nextSales);
+        setLoadingSales(false);
+      },
+      (error) => {
+        console.error("Error cargando ventas", error);
+        setLoadingSales(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setTransactions([]);
+      setLoadingTransactions(false);
+      return;
+    }
+
+    setLoadingTransactions(true);
+    const transactionsQuery = query(
+      collection(db, "transactions"),
+      orderBy("date", "desc")
+    );
+
+    const unsubscribe = onSnapshot(
+      transactionsQuery,
+      (snapshot) => {
+        const nextTransactions: Transaction[] = snapshot.docs.map((docSnapshot) => {
+          const raw = docSnapshot.data() as Record<string, any>;
+          const dateValue = raw.date
+            ? raw.date instanceof Timestamp
+              ? raw.date.toDate()
+              : new Date(raw.date)
+            : new Date();
+
+          return {
+            id: docSnapshot.id,
+            type: raw.type === "expense" ? "expense" : "income",
+            amount: Number(raw.amount ?? 0),
+            description: raw.description ?? "Movimiento",
+            category: raw.category ?? "General",
+            date: dateValue,
+          };
+        });
+
+        setTransactions(nextTransactions);
+        setFinanceError(null);
+        setLoadingTransactions(false);
+      },
+      (error) => {
+        console.error("Error cargando transacciones", error);
+        setFinanceError("No pudimos cargar tus finanzas.");
+        setLoadingTransactions(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  async function handleAddProduct(payload: ProductPayload) {
+    const createdAtValue = payload.createdAt
+      ? Timestamp.fromDate(payload.createdAt)
+      : serverTimestamp();
+
+    await addDoc(collection(db, "products"), {
+      name: payload.name,
+      nombre: payload.name,
+      category: payload.category,
+      categoria: payload.category,
+      stock: payload.stock,
+      stockMin: payload.stockMin,
+      purchasePrice: payload.purchasePrice,
+      salePrice: payload.salePrice,
+      supplier: payload.supplier,
+      proveedor: payload.supplier,
+      createdAt: createdAtValue,
+    });
   }
 
-  async function handleUpdateProduct(
-    id: string,
-    product: Omit<Product, "id">
-  ) {
+  async function handleUpdateProduct(id: string, payload: ProductPayload) {
     const productRef = doc(db, "products", id);
-    await updateDoc(productRef, product);
+    await updateDoc(productRef, {
+      name: payload.name,
+      nombre: payload.name,
+      category: payload.category,
+      categoria: payload.category,
+      stock: payload.stock,
+      stockMin: payload.stockMin,
+      purchasePrice: payload.purchasePrice,
+      salePrice: payload.salePrice,
+      supplier: payload.supplier,
+      proveedor: payload.supplier,
+    });
   }
 
   async function handleDeleteProduct(id: string) {
@@ -98,9 +236,54 @@ function App() {
     await deleteDoc(productRef);
   }
 
-  function handleOpenDemo() {
-    setActivePage("dashboard");
+  async function handleQuickSale(payload: QuickSalePayload) {
+    setSaleError(null);
+    const product = products.find((p) => p.id === payload.productId);
+
+    if (!product) {
+      throw new Error("Producto no encontrado");
+    }
+
+    if (payload.quantity <= 0) {
+      throw new Error("Ingresa una cantidad válida");
+    }
+
+    if (product.stock < payload.quantity) {
+      throw new Error("Stock insuficiente para esta venta");
+    }
+
+    const total = payload.quantity * payload.unitPrice;
+
+    await addDoc(collection(db, "sales"), {
+      productId: product.id,
+      productName: product.name,
+      quantity: payload.quantity,
+      unitPrice: payload.unitPrice,
+      total,
+      date: serverTimestamp(),
+    });
+
+    const productRef = doc(db, "products", product.id);
+    await updateDoc(productRef, {
+      stock: product.stock - payload.quantity,
+    });
   }
+
+  async function handleAddTransaction(payload: TransactionPayload) {
+    const dateValue = payload.date
+      ? Timestamp.fromDate(payload.date)
+      : serverTimestamp();
+
+    await addDoc(collection(db, "transactions"), {
+      type: payload.type,
+      amount: payload.amount,
+      description: payload.description,
+      category: payload.category,
+      date: dateValue,
+    });
+  }
+
+  const lastFiveSales = useMemo(() => sales.slice(0, 5), [sales]);
 
   async function handleSignOut() {
     try {
@@ -127,138 +310,69 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen flex bg-softGray">
-      {/* SIDEBAR */}
-      <aside className="w-64 bg-primary text-white flex flex-col">
-        <div className="px-6 py-4 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <img
-              src={logoMark}
-              alt="Logotipo de SimpliGest"
-              className="w-12 h-12 rounded-2xl shadow-lg shadow-primary/40"
-            />
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">SimpliGest</h1>
-              <p className="text-sm text-primaryLight/90">
-                Simple como Excel, potente como un ERP.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="flex-1 px-4 py-4 space-y-2 text-sm">
-          <SidebarItem
-            label="Inicio"
-            active={activePage === "inicio"}
-            onClick={() => setActivePage("inicio")}
+    <>
+      <MainLayout
+        activePage={activePage}
+        onChangePage={setActivePage}
+        onOpenQuickSale={() => setQuickSaleOpen(true)}
+        onSignOut={handleSignOut}
+        userEmail={user.email || ""}
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+      >
+        {activePage === "inicio" && <HomePage onShowDemo={() => setActivePage("dashboard")} />}
+        {activePage === "dashboard" && (
+          <Dashboard
+            products={products}
+            sales={sales}
+            loadingProducts={loadingProducts}
+            loadingSales={loadingSales}
+            latestSales={lastFiveSales}
           />
-          <SidebarItem
-            label="Dashboard"
-            active={activePage === "dashboard"}
-            onClick={() => setActivePage("dashboard")}
+        )}
+        {activePage === "inventario" && (
+          <InventoryPage
+            products={products}
+            onAddProduct={handleAddProduct}
+            onUpdateProduct={handleUpdateProduct}
+            onDeleteProduct={handleDeleteProduct}
+            loading={loadingProducts}
+            searchTerm={searchTerm}
+            errorMessage={inventoryError}
           />
-          <SidebarItem
-            label="Inventario"
-            active={activePage === "inventario"}
-            onClick={() => setActivePage("inventario")}
+        )}
+        {activePage === "finanzas" && (
+          <FinancePage
+            sales={sales}
+            transactions={transactions}
+            loadingSales={loadingSales}
+            loadingTransactions={loadingTransactions}
+            onAddTransaction={handleAddTransaction}
+            errorMessage={financeError}
           />
-          <SidebarItem label="Finanzas" />
-          <SidebarItem label="Ventas (POS)" />
-          <SidebarItem label="Panel de IA" />
-          <SidebarItem label="Reportes" />
-          <SidebarItem label="Usuarios & Roles" />
-          <SidebarItem label="Configuración" />
-        </nav>
+        )}
+      </MainLayout>
 
-        <div className="px-4 py-4 border-t border-white/10 text-xs text-primaryLight/90">
-          <p>Ayuda y soporte</p>
-          <p className="opacity-80">Chat interno · Tutoriales · Tooltips</p>
-        </div>
-      </aside>
-
-      {/* MAIN CONTENT */}
-      <div className="flex-1 flex flex-col">
-        {/* TOP BAR */}
-        <header className="h-16 bg-white flex flex-wrap gap-3 items-center justify-between px-6 shadow-sm">
-          <div>
-            <h2 className="text-lg font-semibold text-primary">
-              {activePage === "inicio"
-                ? "Tu cockpit central"
-                : activePage === "dashboard"
-                ? "Dashboard General"
-                : "Inventario"}
-            </h2>
-            <p className="text-xs text-gray-500">
-              {activePage === "inicio"
-                ? "Accede a resúmenes clave y sigue optimizando tu operación."
-                : activePage === "dashboard"
-                ? "Controla inventario, finanzas y ventas desde un solo lugar."
-                : "Administra tus productos, stock y proveedores."}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {activePage === "inicio" ? (
-              <>
-                <button
-                  onClick={handleOpenDemo}
-                  className="hidden md:inline-flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-primary/20 text-primary hover:bg-primary/5 transition"
-                >
-                  Ver demo interactiva
-                </button>
-                <button className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition">
-                  Hablar con un asesor
-                </button>
-              </>
-            ) : (
-              <>
-                <input
-                  type="text"
-                  placeholder='Buscar productos, facturas, "ventas de hoy"...'
-                  className="hidden md:block w-72 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                />
-                <button className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition">
-                  + Venta rápida
-                </button>
-              </>
-            )}
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <div className="text-right hidden sm:block">
-                <p className="text-[11px] uppercase tracking-wide text-gray-400">
-                  Sesión activa
-                </p>
-                <p className="font-semibold text-primary">{user.email}</p>
-              </div>
-              <button
-                onClick={handleSignOut}
-                className="text-xs px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-softGray"
-              >
-                Cerrar sesión
-              </button>
-            </div>
-          </div>
-        </header>
-
-        {/* CONTENT AREA */}
-        <main className="flex-1 p-6 space-y-6">
-          {activePage === "inicio" ? (
-            <HomePage onShowDemo={handleOpenDemo} />
-          ) : activePage === "dashboard" ? (
-            <Dashboard />
-          ) : (
-            <InventoryPage
-              products={products}
-              onAddProduct={handleAddProduct}
-              onUpdateProduct={handleUpdateProduct}
-              onDeleteProduct={handleDeleteProduct}
-              loading={loadingProducts}
-            />
-          )}
-        </main>
-      </div>
-    </div>
+      <QuickSaleModal
+        open={quickSaleOpen}
+        products={products}
+        onClose={() => setQuickSaleOpen(false)}
+        onSubmit={async (values) => {
+          try {
+            await handleQuickSale(values);
+            setQuickSaleOpen(false);
+          } catch (error: any) {
+            setSaleError(error?.message || "No pudimos registrar la venta");
+            throw error;
+          }
+        }}
+        errorMessage={saleError}
+      />
+    </>
   );
 }
+
+export default App;
 
 /* -----------------------------------------------------------
    HOME PAGE
@@ -343,526 +457,6 @@ function HomePage({ onShowDemo }: HomePageProps) {
   );
 }
 
-/* -----------------------------------------------------------
-   DASHBOARD
------------------------------------------------------------ */
-
-function Dashboard() {
-  return (
-    <>
-      {/* KPIs */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Stock total"
-          value="3.482"
-          subtitle="Productos en inventario"
-        />
-        <KpiCard
-          title="Ventas de hoy"
-          value="$ 452.300"
-          subtitle="Resumen día actual"
-        />
-        <KpiCard
-          title="Flujo de caja"
-          value="+ $ 1.230.000"
-          subtitle="Últimos 30 días"
-          positive
-        />
-        <KpiCard
-          title="Alertas"
-          value="7"
-          subtitle="Stock crítico / cuentas por pagar"
-        />
-      </section>
-
-      {/* MAIN PANELS */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Inventario resumen (estático) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm p-4">
-          <h3 className="font-semibold mb-1 text-primary">Inventario</h3>
-          <p className="text-xs text-gray-500 mb-3">
-            Productos con stock crítico y movimientos recientes.
-          </p>
-
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-gray-500 border-b">
-                <th className="py-2">Producto</th>
-                <th className="py-2">Categoría</th>
-                <th className="py-2">Stock</th>
-                <th className="py-2">Proveedor</th>
-                <th className="py-2 text-right">Costo</th>
-              </tr>
-            </thead>
-            <tbody className="text-gray-700">
-              <TableRow
-                producto="Pan de molde 1kg"
-                categoria="Alimentos"
-                stock="5 uds"
-                proveedor="Proveedor Los Andes"
-                costo="$ 1.200"
-                stockCritico
-              />
-              <TableRow
-                producto="Bebida cola 1.5L"
-                categoria="Bebidas"
-                stock="32 uds"
-                proveedor="Distribuidora Sur"
-                costo="$ 890"
-              />
-              <TableRow
-                producto="Cerveza lata 350cc"
-                categoria="Alcohol"
-                stock="120 uds"
-                proveedor="Cervecería Norte"
-                costo="$ 650"
-              />
-            </tbody>
-          </table>
-
-          <div className="mt-3 text-right">
-            <button className="text-xs text-primaryLight hover:underline">
-              Ver inventario completo →
-            </button>
-          </div>
-        </div>
-
-        {/* Panel IA */}
-        <div className="bg-white rounded-2xl shadow-sm p-4 flex flex-col">
-          <h3 className="font-semibold mb-1 text-primary">Asistente IA</h3>
-          <p className="text-xs text-gray-500 mb-3">
-            Recomendaciones inteligentes para tu negocio.
-          </p>
-
-          <ul className="text-xs space-y-2 flex-1">
-            <li className="bg-softGray rounded-xl px-3 py-2">
-              ✅ Compra más <strong>pan de molde</strong>: tu stock se agota en
-              2 días al ritmo actual.
-            </li>
-            <li className="bg-softGray rounded-xl px-3 py-2">
-              ⚠️ Evita sobrestock de <strong>bebidas cola</strong>: tienes
-              inventario para 45 días.
-            </li>
-            <li className="bg-softGray rounded-xl px-3 py-2">
-              🧾 Tu mejor proveedor este mes:{" "}
-              <strong>Distribuidora Sur</strong> (mejor margen promedio).
-            </li>
-          </ul>
-
-          <button className="mt-3 text-xs w-full bg-primary text-white py-2 rounded-xl hover:opacity-90 transition">
-            Ver predicciones de demanda
-          </button>
-        </div>
-      </section>
-    </>
-  );
-}
-
-/* -----------------------------------------------------------
-   PÁGINA DE INVENTARIO
------------------------------------------------------------ */
-
-type InventoryPageProps = {
-  products: Product[];
-  onAddProduct: (product: Omit<Product, "id">) => Promise<void>;
-  onUpdateProduct: (id: string, product: Omit<Product, "id">) => Promise<void>;
-  onDeleteProduct: (id: string) => Promise<void>;
-  loading: boolean;
-};
-
-function InventoryPage({
-  products,
-  onAddProduct,
-  onUpdateProduct,
-  onDeleteProduct,
-  loading,
-}: InventoryPageProps) {
-  const initialFormState = {
-    nombre: "",
-    categoria: "",
-    proveedor: "",
-    stock: "",
-    costo: "",
-  };
-
-  const [formValues, setFormValues] = useState(initialFormState);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("todos");
-  const [stockFilter, setStockFilter] = useState("todos");
-
-  useEffect(() => {
-    if (editingProduct) {
-      setFormValues({
-        nombre: editingProduct.nombre,
-        categoria: editingProduct.categoria,
-        proveedor: editingProduct.proveedor,
-        stock: editingProduct.stock.toString(),
-        costo: editingProduct.costo.toString(),
-      });
-    } else {
-      setFormValues(initialFormState);
-    }
-  }, [editingProduct]);
-
-  const categories = Array.from(new Set(products.map((p) => p.categoria)));
-
-  const filteredProducts = products.filter((p) => {
-    const matchesSearch = p.nombre
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
-    const matchesCategory =
-      categoryFilter === "todos" || p.categoria === categoryFilter;
-    const matchesStock =
-      stockFilter === "todos"
-        ? true
-        : stockFilter === "critico"
-        ? p.stock > 0 && p.stock <= 5
-        : p.stock === 0;
-
-    return matchesSearch && matchesCategory && matchesStock;
-  });
-
-  function handleChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) {
-    const { name, value } = e.target;
-    setFormValues((prev) => ({ ...prev, [name]: value }));
-  }
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const nombre = formValues.nombre.trim();
-    const categoria = formValues.categoria.trim();
-    const proveedor = formValues.proveedor.trim();
-    const stock = Number(formValues.stock || 0);
-    const costo = Number(formValues.costo || 0);
-
-    if (!nombre) {
-      alert("El nombre del producto es obligatorio.");
-      return;
-    }
-
-    if (editingProduct) {
-      await onUpdateProduct(editingProduct.id, {
-        nombre,
-        categoria,
-        proveedor,
-        stock,
-        costo,
-      });
-      setEditingProduct(null);
-    } else {
-      await onAddProduct({
-        nombre,
-        categoria,
-        proveedor,
-        stock,
-        costo,
-      });
-    }
-
-    setFormValues(initialFormState);
-  }
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      {/* FORMULARIO */}
-      <div className="bg-white rounded-2xl shadow-sm p-4 lg:col-span-1">
-        <h3 className="font-semibold mb-1 text-primary">
-          {editingProduct ? "Editar producto" : "Agregar producto"}
-        </h3>
-        <p className="text-xs text-gray-500 mb-3">
-          {editingProduct
-            ? "Actualiza los datos del producto seleccionado."
-            : "Registra un nuevo producto en tu inventario (guardado en la nube 🔐)."}
-        </p>
-
-        <form onSubmit={handleSubmit} className="space-y-3 text-xs">
-          <div>
-            <label className="block mb-1 text-gray-600">Nombre *</label>
-            <input
-              name="nombre"
-              type="text"
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-              placeholder="Ej: Pan de molde 1kg"
-              required
-              value={formValues.nombre}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label className="block mb-1 text-gray-600">Categoría</label>
-            <input
-              name="categoria"
-              type="text"
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-              placeholder="Ej: Alimentos, Bebidas..."
-              value={formValues.categoria}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label className="block mb-1 text-gray-600">Proveedor</label>
-            <input
-              name="proveedor"
-              type="text"
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-              placeholder="Ej: Distribuidora Sur"
-              value={formValues.proveedor}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block mb-1 text-gray-600">Stock</label>
-              <input
-                name="stock"
-                type="number"
-                min={0}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                placeholder="Ej: 10"
-                value={formValues.stock}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label className="block mb-1 text-gray-600">Costo (CLP)</label>
-              <input
-                name="costo"
-                type="number"
-                min={0}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                placeholder="Ej: 1200"
-                value={formValues.costo}
-                onChange={handleChange}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="flex-1 mt-2 bg-success text-white py-2 rounded-xl text-xs font-semibold hover:opacity-90 transition"
-            >
-              {editingProduct ? "Actualizar producto" : "Guardar producto"}
-            </button>
-            {editingProduct && (
-              <button
-                type="button"
-                onClick={() => setEditingProduct(null)}
-                className="px-4 py-2 mt-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-softGray"
-              >
-                Cancelar
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
-
-      {/* TABLA DE PRODUCTOS */}
-      <div className="bg-white rounded-2xl shadow-sm p-4 lg:col-span-2 overflow-auto">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-          <div>
-            <h3 className="font-semibold mb-1 text-primary">
-              Inventario completo
-            </h3>
-            <p className="text-xs text-gray-500">
-              Control total de productos, stock y costos en tiempo real.
-            </p>
-          </div>
-          <div className="flex flex-col md:flex-row gap-2 text-xs">
-            <input
-              type="text"
-              placeholder="Buscar por nombre"
-              className="px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <select
-              className="px-3 py-2 rounded-xl border border-gray-200"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="todos">Todas las categorías</option>
-              {categories.map((category) => (
-                <option key={category || "sin-categoria"} value={category}>
-                  {category || "Sin categoría"}
-                </option>
-              ))}
-            </select>
-            <select
-              className="px-3 py-2 rounded-xl border border-gray-200"
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
-            >
-              <option value="todos">Todo el stock</option>
-              <option value="critico">Stock crítico (&lt;=5)</option>
-              <option value="sin-stock">Sin stock</option>
-            </select>
-          </div>
-        </div>
-
-        {loading ? (
-          <p className="text-xs text-gray-500">Cargando productos...</p>
-        ) : filteredProducts.length === 0 ? (
-          <p className="text-xs text-gray-500">
-            {products.length === 0
-              ? "Aún no hay productos. Agrega el primero con el formulario de la izquierda."
-              : "No encontramos productos que coincidan con tu búsqueda."}
-          </p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-gray-500 border-b">
-                <th className="py-2">Producto</th>
-                <th className="py-2">Categoría</th>
-                <th className="py-2">Stock</th>
-                <th className="py-2">Proveedor</th>
-                <th className="py-2 text-right">Costo</th>
-                <th className="py-2 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="text-gray-700">
-              {filteredProducts.map((p) => (
-                <tr key={p.id} className="border-b last:border-b-0">
-                  <td className="py-2">{p.nombre}</td>
-                  <td className="py-2">{p.categoria || "-"}</td>
-                  <td
-                    className={`py-2 ${
-                      p.stock > 0 && p.stock <= 5
-                        ? "text-red-500 font-semibold"
-                        : ""
-                    }`}
-                  >
-                    {p.stock} uds
-                  </td>
-                  <td className="py-2">{p.proveedor || "-"}</td>
-                  <td className="py-2 text-right">
-                    $ {p.costo.toLocaleString("es-CL")}
-                  </td>
-                  <td className="py-2 text-right space-x-2">
-                    <button
-                      className="text-primaryLight hover:underline"
-                      onClick={() => setEditingProduct(p)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      className="text-red-500 hover:underline"
-                      onClick={async () => {
-                        const confirmDelete = window.confirm(
-                          `¿Eliminar ${p.nombre}?`
-                        );
-                        if (confirmDelete) {
-                          await onDeleteProduct(p.id);
-                          if (editingProduct?.id === p.id) {
-                            setEditingProduct(null);
-                          }
-                        }
-                      }}
-                    >
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* -----------------------------------------------------------
-   COMPONENTES REUTILIZABLES
------------------------------------------------------------ */
-
-type SidebarItemProps = {
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
-};
-
-function SidebarItem({ label, active, onClick }: SidebarItemProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-3 py-2 rounded-xl transition text-sm ${
-        active
-          ? "bg-white text-primary font-semibold"
-          : "text-white/90 hover:bg-white/10"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-type KpiCardProps = {
-  title: string;
-  value: string;
-  subtitle: string;
-  positive?: boolean;
-};
-
-function KpiCard({ title, value, subtitle, positive }: KpiCardProps) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm p-4 flex flex-col gap-1">
-      <p className="text-xs text-gray-500">{title}</p>
-      <p className="text-xl font-semibold text-primary">{value}</p>
-      <p className="text-[11px] text-gray-500">{subtitle}</p>
-
-      {positive !== undefined && (
-        <span
-          className={`mt-1 inline-block text-[11px] px-2 py-1 rounded-full ${
-            positive
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
-          {positive ? "Tendencia positiva" : "Tendencia negativa"}
-        </span>
-      )}
-    </div>
-  );
-}
-
-type TableRowProps = {
-  producto: string;
-  categoria: string;
-  stock: string;
-  proveedor: string;
-  costo: string;
-  stockCritico?: boolean;
-};
-
-function TableRow({
-  producto,
-  categoria,
-  stock,
-  proveedor,
-  costo,
-  stockCritico,
-}: TableRowProps) {
-  return (
-    <tr className="border-b last:border-b-0">
-      <td className="py-2">{producto}</td>
-      <td className="py-2">{categoria || "-"}</td>
-      <td className={`py-2 ${stockCritico ? "text-red-500 font-semibold" : ""}`}>
-        {stock}
-      </td>
-      <td className="py-2">{proveedor || "-"}</td>
-      <td className="py-2 text-right">{costo}</td>
-    </tr>
-  );
-}
-
 type BenefitCardProps = {
   title: string;
   description: string;
@@ -870,11 +464,12 @@ type BenefitCardProps = {
 
 function BenefitCard({ title, description }: BenefitCardProps) {
   return (
-    <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100">
-      <h4 className="text-base font-semibold text-primary mb-2">{title}</h4>
+    <div className="bg-white rounded-2xl p-4 shadow-sm">
+      <p className="text-xs uppercase tracking-[0.3em] text-primaryLight">
+        BENEFICIO
+      </p>
+      <h3 className="text-lg font-semibold text-primary">{title}</h3>
       <p className="text-sm text-gray-600">{description}</p>
     </div>
   );
 }
-
-export default App;
