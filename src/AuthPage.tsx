@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth, db } from "./firebase";
 import { doc, setDoc } from "firebase/firestore";
@@ -24,11 +25,12 @@ const initialFormState: RegisterForm = {
   password: "",
 };
 
-const AuthPage: React.FC = () => {
+const AuthPage = () => {
   const [mode, setMode] = useState<AuthMode>("register");
   const [form, setForm] = useState<RegisterForm>(initialFormState);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
   const heroBenefits = useMemo(
     () => [
@@ -86,6 +88,7 @@ const AuthPage: React.FC = () => {
     if (loading) return;
     setLoading(true);
     setErrorMsg(null);
+    setResetMessage(null);
 
     try {
       if (isLogin) {
@@ -119,6 +122,31 @@ const AuthPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handlePasswordReset() {
+    if (!form.email) {
+      setErrorMsg("Ingresa tu correo para recuperar la contraseña");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, form.email);
+      setResetMessage("Revisa tu correo para restablecer la contraseña");
+      setErrorMsg(null);
+    } catch (error: any) {
+      console.error("Error enviando correo de recuperación", error);
+      setErrorMsg(
+        error?.message || "No pudimos enviar el correo de recuperación"
+      );
+    }
+  }
+
+  function toggleMode(nextMode: AuthMode) {
+    setMode(nextMode);
+    setForm(initialFormState);
+    setErrorMsg(null);
+    setResetMessage(null);
   }
 
   return (
@@ -173,16 +201,24 @@ const AuthPage: React.FC = () => {
             </div>
 
             <div className="lg:col-span-2 bg-white rounded-3xl p-6 shadow-2xl text-sm space-y-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-primary">Registro prioritario</p>
-                <h2 className="text-2xl font-semibold text-primary mt-1">
-                  {isLogin ? "Inicia sesión" : "Crea tu cuenta"}
-                </h2>
-                <p className="text-gray-500 text-xs">
-                  {isLogin
-                    ? "Ingresa con tu correo corporativo para continuar."
-                    : "Respondemos en menos de 24 horas hábiles."}
-                </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-primary">Acceso</p>
+                  <h2 className="text-2xl font-semibold text-primary mt-1">
+                    {isLogin ? "Inicia sesión" : "Crea tu cuenta"}
+                  </h2>
+                  <p className="text-gray-500 text-xs">
+                    {isLogin
+                      ? "Ingresa con tu correo corporativo para continuar."
+                      : "Respondemos en menos de 24 horas hábiles."}
+                  </p>
+                </div>
+                <button
+                  className="text-xs text-primary underline"
+                  onClick={() => toggleMode(isLogin ? "register" : "login")}
+                >
+                  {isLogin ? "¿Necesitas registrarte?" : "¿Ya tienes cuenta?"}
+                </button>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-3">
@@ -199,7 +235,6 @@ const AuthPage: React.FC = () => {
                         placeholder="Camila Torres"
                         value={form.nombre}
                         onChange={handleChange}
-                        required
                       />
                     </div>
                     <div>
@@ -209,8 +244,8 @@ const AuthPage: React.FC = () => {
                       <input
                         name="negocio"
                         type="text"
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                        placeholder="Mini Market Los Andes"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                        placeholder="Emporio Central"
                         value={form.negocio}
                         onChange={handleChange}
                       />
@@ -221,100 +256,90 @@ const AuthPage: React.FC = () => {
                       </label>
                       <select
                         name="tamano"
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200"
                         value={form.tamano}
                         onChange={handleChange}
                       >
-                        <option>1-5 colaboradores</option>
-                        <option>6-20 colaboradores</option>
-                        <option>21-50 colaboradores</option>
-                        <option>Más de 50 colaboradores</option>
+                        <option value="1-5 colaboradores">1-5 colaboradores</option>
+                        <option value="6-20 colaboradores">6-20 colaboradores</option>
+                        <option value="21+ colaboradores">21+ colaboradores</option>
                       </select>
                     </div>
                   </>
                 )}
-
                 <div>
-                  <label className="text-gray-600 text-xs block mb-1">
-                    Correo electrónico *
-                  </label>
+                  <label className="text-gray-600 text-xs block mb-1">Correo electrónico *</label>
                   <input
                     name="email"
                     type="email"
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                    placeholder="hola@tuempresa.com"
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                    placeholder="tucorreo@empresa.com"
                     value={form.email}
                     onChange={handleChange}
-                    required
                   />
                 </div>
                 <div>
-                  <label className="text-gray-600 text-xs block mb-1">
-                    Contraseña *
-                  </label>
+                  <label className="text-gray-600 text-xs block mb-1">Contraseña *</label>
                   <input
                     name="password"
                     type="password"
-                    minLength={6}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                    placeholder="Mínimo 6 caracteres"
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                    placeholder="••••••••"
                     value={form.password}
                     onChange={handleChange}
-                    required
                   />
+                  {isLogin && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-primary mt-1 underline"
+                      onClick={handlePasswordReset}
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  )}
                 </div>
 
-                {errorMsg && (
-                  <p className="text-[11px] text-red-600 bg-red-50 rounded-xl px-3 py-2">
-                    {errorMsg}
-                  </p>
-                )}
+                {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
+                {resetMessage && <p className="text-xs text-green-600">{resetMessage}</p>}
 
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-primary text-white py-3 rounded-2xl font-semibold hover:opacity-90 transition disabled:opacity-60"
+                  className="w-full bg-primary text-white py-3 rounded-2xl text-sm font-semibold hover:opacity-90 disabled:opacity-50"
                 >
                   {loading
                     ? "Procesando..."
                     : isLogin
-                    ? "Entrar a SimpliGest"
-                    : "Crear cuenta y entrar"}
+                    ? "Ingresar"
+                    : "Solicitar demo"}
                 </button>
               </form>
-
-              <div className="text-center text-[11px] text-gray-500">
-                <p>
-                  {isLogin ? "¿Eres nuevo?" : "¿Ya tienes cuenta?"}{" "}
-                  <button
-                    type="button"
-                    onClick={() => setMode(isLogin ? "register" : "login")}
-                    className="text-primary font-semibold hover:underline"
-                  >
-                    {isLogin ? "Crear cuenta" : "Inicia sesión"}
-                  </button>
-                </p>
-                <p className="mt-2">
-                  Tu información se almacena de forma segura en la nube 🔐
-                </p>
-              </div>
             </div>
           </div>
         </section>
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {heroBenefits.map((benefit) => (
-            <BenefitCard key={benefit.title} {...benefit} />
+            <div key={benefit.title} className="bg-white rounded-2xl p-4 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.3em] text-primaryLight">
+                {benefit.title}
+              </p>
+              <p className="text-sm text-gray-600">{benefit.description}</p>
+            </div>
           ))}
         </section>
 
         <section className="bg-white rounded-3xl shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-primary mb-4">
-            ¿Cómo funciona el registro?
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <h2 className="text-xl font-semibold text-primary mb-4">
+            ¿Cómo funciona SimpliGest?
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             {registrationSteps.map((step) => (
-              <StepCard key={step.number} {...step} />
+              <div key={step.number} className="bg-softGray rounded-2xl p-4">
+                <p className="text-xs text-primary font-semibold">{step.number}</p>
+                <h3 className="font-semibold text-primary">{step.title}</h3>
+                <p className="text-gray-600 text-xs">{step.description}</p>
+              </div>
             ))}
           </div>
         </section>
@@ -322,37 +347,5 @@ const AuthPage: React.FC = () => {
     </div>
   );
 };
-
-type BenefitCardProps = {
-  title: string;
-  description: string;
-};
-
-function BenefitCard({ title, description }: BenefitCardProps) {
-  return (
-    <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100">
-      <h4 className="text-base font-semibold text-primary mb-2">{title}</h4>
-      <p className="text-sm text-gray-600">{description}</p>
-    </div>
-  );
-}
-
-type StepCardProps = {
-  number: string;
-  title: string;
-  description: string;
-};
-
-function StepCard({ number, title, description }: StepCardProps) {
-  return (
-    <div className="border border-gray-100 rounded-3xl p-5 flex gap-4 bg-softGray/60">
-      <div className="text-primary font-semibold text-lg">{number}</div>
-      <div>
-        <h5 className="text-sm font-semibold text-primary mb-1">{title}</h5>
-        <p className="text-xs text-gray-600">{description}</p>
-      </div>
-    </div>
-  );
-}
 
 export default AuthPage;
