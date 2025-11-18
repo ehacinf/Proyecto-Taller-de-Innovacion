@@ -12,6 +12,7 @@ import {
   serverTimestamp,
   Timestamp,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import AuthPage from "./AuthPage";
 import { auth, db } from "./firebase";
@@ -63,7 +64,11 @@ function App() {
     }
 
     setLoadingProducts(true);
-    const q = query(collection(db, "products"), orderBy("nombre", "asc"));
+    const q = query(
+      collection(db, "products"),
+      where("userId", "==", user.uid),
+      orderBy("nombre", "asc")
+    );
 
     const unsubscribe = onSnapshot(
       q,
@@ -86,6 +91,7 @@ function App() {
             salePrice: Number(raw.salePrice ?? raw.precioVenta ?? raw.costo ?? 0),
             supplier: raw.supplier ?? raw.proveedor ?? "",
             createdAt,
+            userId: raw.userId,
           };
         });
 
@@ -196,6 +202,9 @@ function App() {
   }, [user]);
 
   async function handleAddProduct(payload: ProductPayload) {
+    if (!user) {
+      throw new Error("Usuario no autenticado");
+    }
     const createdAtValue = payload.createdAt
       ? Timestamp.fromDate(payload.createdAt)
       : serverTimestamp();
@@ -212,10 +221,14 @@ function App() {
       supplier: payload.supplier,
       proveedor: payload.supplier,
       createdAt: createdAtValue,
+      userId: user.uid,
     });
   }
 
   async function handleUpdateProduct(id: string, payload: ProductPayload) {
+    if (!user) {
+      throw new Error("Usuario no autenticado");
+    }
     const productRef = doc(db, "products", id);
     await updateDoc(productRef, {
       name: payload.name,
@@ -228,10 +241,14 @@ function App() {
       salePrice: payload.salePrice,
       supplier: payload.supplier,
       proveedor: payload.supplier,
+      userId: user.uid,
     });
   }
 
   async function handleDeleteProduct(id: string) {
+    if (!user) {
+      throw new Error("Usuario no autenticado");
+    }
     const productRef = doc(db, "products", id);
     await deleteDoc(productRef);
   }
