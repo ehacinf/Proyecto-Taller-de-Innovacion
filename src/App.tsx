@@ -288,7 +288,6 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
       proveedor,
       stock,
       costo,
-      id: "" as never, // no se usa, Firestore genera el id
     });
 
     form.reset();
