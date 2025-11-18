@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { db } from "./firebase";
+import AuthPage from "./AuthPage";
+import { auth, db } from "./firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import type { User } from "firebase/auth";
 import {
   collection,
   addDoc,
@@ -28,6 +31,38 @@ type Product = {
 ----------------------------------------------------------- */
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-primary">
+        Cargando...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  return <MainApp onSignOut={() => signOut(auth)} />;
+}
+
+type MainAppProps = {
+  onSignOut: () => void | Promise<void>;
+};
+
+function MainApp({ onSignOut }: MainAppProps) {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -119,6 +154,12 @@ function App() {
             />
             <button className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition">
               + Venta rápida
+            </button>
+            <button
+              onClick={onSignOut}
+              className="text-sm text-primary border border-primary/40 px-3 py-2 rounded-xl hover:bg-primary/5 transition"
+            >
+              Cerrar sesión
             </button>
           </div>
         </header>
@@ -282,14 +323,13 @@ function InventoryPage({ products, onAddProduct, loading }: InventoryPageProps) 
       return;
     }
 
-    await onAddProduct({
-      nombre,
-      categoria,
-      proveedor,
-      stock,
-      costo,
-      id: "" as never, // no se usa, Firestore genera el id
-    });
+      await onAddProduct({
+        nombre,
+        categoria,
+        proveedor,
+        stock,
+        costo,
+      });
 
     form.reset();
   }
