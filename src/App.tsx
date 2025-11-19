@@ -6,10 +6,12 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   Timestamp,
   updateDoc,
   where,
@@ -21,8 +23,10 @@ import Dashboard from "./components/Dashboard/Dashboard";
 import InventoryPage from "./components/Inventory/InventoryPage";
 import QuickSaleModal from "./components/Sales/QuickSaleModal";
 import FinancePage from "./components/Finance/FinancePage";
+import SettingsPage from "./components/Settings/SettingsPage";
 import type {
   ActivePage,
+  BusinessSettings,
   Product,
   ProductPayload,
   QuickSalePayload,
@@ -46,6 +50,11 @@ function App() {
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [financeError, setFinanceError] = useState<string | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsFeedback, setSettingsFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -87,6 +96,7 @@ function App() {
             category: raw.category ?? raw.categoria ?? "",
             stock: Number(raw.stock ?? 0),
             stockMin: Number(raw.stockMin ?? raw.stock_min ?? 0),
+            unit: raw.unit ?? raw.unidad ?? undefined,
             purchasePrice: Number(raw.purchasePrice ?? raw.costo ?? 0),
             salePrice: Number(raw.salePrice ?? raw.precioVenta ?? raw.costo ?? 0),
             supplier: raw.supplier ?? raw.proveedor ?? "",
@@ -157,6 +167,11 @@ function App() {
     if (!user) {
       setTransactions([]);
       setLoadingTransactions(false);
+      setSettings(null);
+      setSettingsLoading(false);
+      setSettingsError(null);
+      setSettingsFeedback(null);
+      setSettingsSaving(false);
       return;
     }
 
@@ -201,6 +216,65 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const currentUser = user;
+    setSettingsLoading(true);
+    const settingsRef = doc(db, "settings", currentUser.uid);
+    let unsubscribe: (() => void) | null = null;
+
+    async function bootstrapSettings() {
+      try {
+        const existing = await getDoc(settingsRef);
+        if (!existing.exists()) {
+          await setDoc(
+            settingsRef,
+            buildDefaultSettingsDoc(currentUser.email || "", currentUser.uid)
+          );
+        }
+
+        unsubscribe = onSnapshot(
+          settingsRef,
+          (docSnapshot) => {
+            const data = docSnapshot.data();
+            setSettings(normalizeSettings(data, currentUser.email || ""));
+            setSettingsLoading(false);
+            setSettingsError(null);
+          },
+          (error) => {
+            console.error("Error cargando configuración", error);
+            setSettingsError("No pudimos cargar tu configuración.");
+            setSettingsLoading(false);
+          }
+        );
+      } catch (error) {
+        console.error("Error preparando configuración", error);
+        setSettingsError("No pudimos cargar tu configuración.");
+        setSettingsLoading(false);
+      }
+    }
+
+    bootstrapSettings();
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [user]);
+
+  useEffect(() => {
+    const theme = settings?.uiTheme ?? "light";
+    document.body.classList.toggle("theme-dark", theme === "dark");
+  }, [settings?.uiTheme]);
+
+  useEffect(() => {
+    document.body.classList.toggle("text-large", settings?.uiFontSize === "large");
+  }, [settings?.uiFontSize]);
+
   async function handleAddProduct(payload: ProductPayload) {
     if (!user) {
       throw new Error("Usuario no autenticado");
@@ -208,6 +282,7 @@ function App() {
     const createdAtValue = payload.createdAt
       ? Timestamp.fromDate(payload.createdAt)
       : serverTimestamp();
+    const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
 
     await addDoc(collection(db, "products"), {
       name: payload.name,
@@ -216,6 +291,7 @@ function App() {
       categoria: payload.category,
       stock: payload.stock,
       stockMin: payload.stockMin,
+      unit: unitToSave,
       purchasePrice: payload.purchasePrice,
       salePrice: payload.salePrice,
       supplier: payload.supplier,
@@ -230,6 +306,7 @@ function App() {
       throw new Error("Usuario no autenticado");
     }
     const productRef = doc(db, "products", id);
+    const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
     await updateDoc(productRef, {
       name: payload.name,
       nombre: payload.name,
@@ -237,6 +314,7 @@ function App() {
       categoria: payload.category,
       stock: payload.stock,
       stockMin: payload.stockMin,
+      unit: unitToSave,
       purchasePrice: payload.purchasePrice,
       salePrice: payload.salePrice,
       supplier: payload.supplier,
@@ -265,7 +343,7 @@ function App() {
       throw new Error("Ingresa una cantidad válida");
     }
 
-    if (product.stock < payload.quantity) {
+    if (!settings?.allowNegativeStock && product.stock < payload.quantity) {
       throw new Error("Stock insuficiente para esta venta");
     }
 
@@ -298,6 +376,29 @@ function App() {
       category: payload.category,
       date: dateValue,
     });
+  }
+
+  async function handleSaveSettings(payload: Partial<BusinessSettings>) {
+    if (!user) {
+      return;
+    }
+    setSettingsSaving(true);
+    setSettingsError(null);
+    try {
+      const settingsRef = doc(db, "settings", user.uid);
+      await updateDoc(settingsRef, {
+        ...payload,
+        categories: payload.categories ?? settings?.categories ?? [],
+        updatedAt: serverTimestamp(),
+      });
+      setSettingsFeedback("Configuración guardada correctamente");
+      setTimeout(() => setSettingsFeedback(null), 4000);
+    } catch (error) {
+      console.error("Error guardando configuración", error);
+      setSettingsError("No pudimos guardar tu configuración. Intenta nuevamente.");
+    } finally {
+      setSettingsSaving(false);
+    }
   }
 
   const lastFiveSales = useMemo(() => sales.slice(0, 5), [sales]);
@@ -356,6 +457,9 @@ function App() {
             loading={loadingProducts}
             searchTerm={searchTerm}
             errorMessage={inventoryError}
+            defaultStockMin={settings?.defaultStockMin}
+            defaultUnit={settings?.defaultUnit}
+            currency={settings?.currency}
           />
         )}
         {activePage === "finanzas" && (
@@ -366,6 +470,20 @@ function App() {
             loadingTransactions={loadingTransactions}
             onAddTransaction={handleAddTransaction}
             errorMessage={financeError}
+            defaultTaxRate={settings?.defaultTaxRate}
+            currency={settings?.currency}
+          />
+        )}
+        {activePage === "configuracion" && (
+          <SettingsPage
+            settings={settings}
+            loading={settingsLoading}
+            saving={settingsSaving}
+            onSave={handleSaveSettings}
+            feedbackMessage={settingsFeedback}
+            errorMessage={settingsError}
+            userEmail={user.email || ""}
+            onSignOut={handleSignOut}
           />
         )}
       </MainLayout>
@@ -384,12 +502,98 @@ function App() {
           }
         }}
         errorMessage={saleError}
+        allowPriceOverride={settings?.allowCustomPriceOnSale ?? true}
       />
     </>
   );
 }
 
 export default App;
+
+function buildDefaultSettingsDoc(email: string, userId: string) {
+  return {
+    businessName: "",
+    businessType: "",
+    taxId: "",
+    address: "",
+    city: "",
+    country: "",
+    phone: "",
+    contactEmail: email,
+    defaultStockMin: 0,
+    defaultUnit: "unidades",
+    categories: [],
+    defaultTaxRate: 19,
+    currency: "CLP",
+    allowNegativeStock: false,
+    allowCustomPriceOnSale: true,
+    alertStockEnabled: false,
+    alertLevel: "normal",
+    alertEmail: email,
+    uiTheme: "light",
+    uiFontSize: "normal",
+    planName: "Beta gratuita – sin costo",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    userId,
+  };
+}
+
+function normalizeSettings(
+  data: Record<string, any> | undefined,
+  fallbackEmail: string
+): BusinessSettings {
+  const createdAtValue = data?.createdAt
+    ? data.createdAt instanceof Timestamp
+      ? data.createdAt.toDate()
+      : new Date(data.createdAt)
+    : null;
+  const updatedAtValue = data?.updatedAt
+    ? data.updatedAt instanceof Timestamp
+      ? data.updatedAt.toDate()
+      : new Date(data.updatedAt)
+    : null;
+  const categories: string[] = Array.isArray(data?.categories)
+    ? (data?.categories as unknown[]).filter((item): item is string => typeof item === "string")
+    : [];
+  const alertLevelRaw = data?.alertLevel;
+  const normalizedAlertLevel: BusinessSettings["alertLevel"] =
+    alertLevelRaw === "estricto" || alertLevelRaw === "relajado"
+      ? alertLevelRaw
+      : "normal";
+  const theme: BusinessSettings["uiTheme"] = data?.uiTheme === "dark" ? "dark" : "light";
+  const fontSize: BusinessSettings["uiFontSize"] =
+    data?.uiFontSize === "large" ? "large" : "normal";
+  const contactEmail = data?.contactEmail ?? fallbackEmail;
+  const alertEmail = data?.alertEmail ?? contactEmail;
+
+  return {
+    businessName: data?.businessName ?? "",
+    businessType: data?.businessType ?? "",
+    taxId: data?.taxId ?? "",
+    address: data?.address ?? "",
+    city: data?.city ?? "",
+    country: data?.country ?? "",
+    phone: data?.phone ?? "",
+    contactEmail,
+    defaultStockMin: Number(data?.defaultStockMin ?? 0),
+    defaultUnit: data?.defaultUnit ?? "unidades",
+    categories,
+    defaultTaxRate: Number(data?.defaultTaxRate ?? 19),
+    currency: data?.currency ?? "CLP",
+    allowNegativeStock: Boolean(data?.allowNegativeStock),
+    allowCustomPriceOnSale:
+      data?.allowCustomPriceOnSale === undefined ? true : Boolean(data.allowCustomPriceOnSale),
+    alertStockEnabled: Boolean(data?.alertStockEnabled),
+    alertLevel: normalizedAlertLevel,
+    alertEmail,
+    uiTheme: theme,
+    uiFontSize: fontSize,
+    planName: data?.planName ?? "Beta gratuita – sin costo",
+    createdAt: createdAtValue,
+    updatedAt: updatedAtValue,
+  };
+}
 
 /* -----------------------------------------------------------
    HOME PAGE

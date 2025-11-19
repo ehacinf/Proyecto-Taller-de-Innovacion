@@ -7,6 +7,7 @@ type QuickSaleModalProps = {
   onClose: () => void;
   onSubmit: (payload: QuickSalePayload) => Promise<void>;
   errorMessage?: string | null;
+  allowPriceOverride?: boolean;
 };
 
 const QuickSaleModal = ({
@@ -15,12 +16,14 @@ const QuickSaleModal = ({
   onClose,
   onSubmit,
   errorMessage,
+  allowPriceOverride = true,
 }: QuickSaleModalProps) => {
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(0);
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const canEditPrice = allowPriceOverride;
 
   const sortedProducts = useMemo(
     () => [...products].sort((a, b) => a.name.localeCompare(b.name)),
@@ -126,8 +129,14 @@ const QuickSaleModal = ({
                   min={0}
                   value={unitPrice}
                   onChange={(event) => setUnitPrice(Number(event.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
+                  disabled={!canEditPrice}
                 />
+                {!canEditPrice && (
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Precio bloqueado por configuración.
+                  </p>
+                )}
               </div>
             </div>
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Product, ProductPayload } from "../../types";
 
 type InventoryPageProps = {
@@ -9,6 +9,9 @@ type InventoryPageProps = {
   loading: boolean;
   searchTerm: string;
   errorMessage?: string | null;
+  defaultStockMin?: number;
+  defaultUnit?: string;
+  currency?: string;
 };
 
 type SortField = "name" | "salePrice" | "stock";
@@ -18,20 +21,24 @@ type FormState = {
   category: string;
   stock: string;
   stockMin: string;
+  unit: string;
   purchasePrice: string;
   salePrice: string;
   supplier: string;
 };
 
-const initialFormState: FormState = {
-  name: "",
-  category: "",
-  stock: "0",
-  stockMin: "0",
-  purchasePrice: "0",
-  salePrice: "0",
-  supplier: "",
-};
+function createInitialFormState(stockMin = 0, unit = "unidades"): FormState {
+  return {
+    name: "",
+    category: "",
+    stock: "0",
+    stockMin: stockMin.toString(),
+    unit,
+    purchasePrice: "0",
+    salePrice: "0",
+    supplier: "",
+  };
+}
 
 const InventoryPage = ({
   products,
@@ -41,8 +48,13 @@ const InventoryPage = ({
   loading,
   searchTerm,
   errorMessage,
+  defaultStockMin = 0,
+  defaultUnit = "unidades",
+  currency = "CLP",
 }: InventoryPageProps) => {
-  const [formValues, setFormValues] = useState<FormState>(initialFormState);
+  const [formValues, setFormValues] = useState<FormState>(() =>
+    createInitialFormState(defaultStockMin, defaultUnit)
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [localSearch, setLocalSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("todos");
@@ -51,6 +63,16 @@ const InventoryPage = ({
   const [submitting, setSubmitting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editingId) {
+      setFormValues((prev) => ({
+        ...prev,
+        stockMin: (defaultStockMin ?? 0).toString(),
+        unit: defaultUnit,
+      }));
+    }
+  }, [defaultStockMin, defaultUnit, editingId]);
 
   const categories = useMemo(
     () => Array.from(new Set(products.map((product) => product.category || "Sin categoría"))),
@@ -97,11 +119,17 @@ const InventoryPage = ({
     event.preventDefault();
     if (submitting) return;
 
+    const trimmedStockMin = formValues.stockMin.trim();
+    const parsedStockMin = trimmedStockMin === "" ? NaN : Number(trimmedStockMin);
+    const fallbackStockMin = defaultStockMin ?? 0;
+    const resolvedStockMin = Number.isFinite(parsedStockMin) ? parsedStockMin : fallbackStockMin;
+
     const payload: ProductPayload = {
       name: formValues.name.trim(),
       category: formValues.category.trim(),
       stock: Number(formValues.stock) || 0,
-      stockMin: Number(formValues.stockMin) || 0,
+      stockMin: resolvedStockMin,
+      unit: formValues.unit || defaultUnit,
       purchasePrice: Number(formValues.purchasePrice) || 0,
       salePrice: Number(formValues.salePrice) || 0,
       supplier: formValues.supplier.trim(),
@@ -123,7 +151,7 @@ const InventoryPage = ({
         await onAddProduct(payload);
         setFeedbackMessage("Producto agregado a tu inventario");
       }
-      setFormValues(initialFormState);
+      setFormValues(createInitialFormState(defaultStockMin, defaultUnit));
       setEditingId(null);
     } catch (error) {
       console.error("Error guardando producto", error);
@@ -142,7 +170,7 @@ const InventoryPage = ({
       await onDeleteProduct(id);
       if (editingId === id) {
         setEditingId(null);
-        setFormValues(initialFormState);
+        setFormValues(createInitialFormState(defaultStockMin, defaultUnit));
       }
     } catch (error) {
       console.error("Error eliminando producto", error);
@@ -156,6 +184,7 @@ const InventoryPage = ({
       category: product.category,
       stock: product.stock.toString(),
       stockMin: product.stockMin.toString(),
+      unit: product.unit || defaultUnit,
       purchasePrice: product.purchasePrice.toString(),
       salePrice: product.salePrice.toString(),
       supplier: product.supplier || "",
@@ -283,7 +312,7 @@ const InventoryPage = ({
                 type="button"
                 onClick={() => {
                   setEditingId(null);
-                  setFormValues(initialFormState);
+                  setFormValues(createInitialFormState(defaultStockMin, defaultUnit));
                 }}
                 className="px-4 py-2 rounded-xl border border-gray-200 text-gray-600"
               >
@@ -291,6 +320,10 @@ const InventoryPage = ({
               </button>
             )}
           </div>
+          <p className="text-[11px] text-gray-500">
+            Unidad configurada: {formValues.unit || defaultUnit}. Para cambiarla ve a la sección de
+            Configuración.
+          </p>
         </form>
       </div>
 
@@ -374,6 +407,7 @@ const InventoryPage = ({
               <tbody className="text-gray-700">
                 {filteredProducts.map((product) => {
                   const lowStock = product.stock <= product.stockMin;
+                  const unitLabel = product.unit || defaultUnit || "uds";
                   return (
                     <tr
                       key={product.id}
@@ -390,9 +424,11 @@ const InventoryPage = ({
                         )}
                       </td>
                       <td className="py-2">{product.category || "-"}</td>
-                      <td className="py-2">{product.stock} uds</td>
+                      <td className="py-2">
+                        {product.stock} {unitLabel}
+                      </td>
                       <td className="py-2">{product.stockMin}</td>
-                      <td className="py-2">{formatCurrency(product.salePrice)}</td>
+                      <td className="py-2">{formatCurrency(product.salePrice, currency)}</td>
                       <td className="py-2">{product.supplier || "-"}</td>
                       <td className="py-2">
                         {product.createdAt
@@ -427,10 +463,10 @@ const InventoryPage = ({
 
 export default InventoryPage;
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number, currency = "CLP") {
   return new Intl.NumberFormat("es-CL", {
     style: "currency",
-    currency: "CLP",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }

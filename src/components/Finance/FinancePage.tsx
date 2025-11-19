@@ -8,6 +8,8 @@ type FinancePageProps = {
   loadingTransactions: boolean;
   onAddTransaction: (payload: TransactionPayload) => Promise<void>;
   errorMessage?: string | null;
+  defaultTaxRate?: number;
+  currency?: string;
 };
 
 type Movement = {
@@ -27,6 +29,8 @@ const FinancePage = ({
   loadingTransactions,
   onAddTransaction,
   errorMessage,
+  defaultTaxRate = 19,
+  currency = "CLP",
 }: FinancePageProps) => {
   const [formValues, setFormValues] = useState({
     type: "income",
@@ -68,6 +72,7 @@ const FinancePage = ({
 
   const totalIncome = salesIncome + manualIncome;
   const balance = totalIncome - manualExpense;
+  const estimatedVat = totalIncome * (defaultTaxRate / 100);
 
   const movements = useMemo<Movement[]>(() => {
     const saleMovements: Movement[] = sales.map((sale) => ({
@@ -138,10 +143,16 @@ const FinancePage = ({
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <SummaryCard title="Ingresos" value={formatCurrency(totalIncome)} accent="text-green-600" />
-        <SummaryCard title="Egresos" value={formatCurrency(manualExpense)} accent="text-red-500" />
-        <SummaryCard title="Saldo" value={formatCurrency(balance)} accent="text-primary" />
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <SummaryCard title="Ingresos" value={formatCurrency(totalIncome, currency)} accent="text-green-600" />
+        <SummaryCard title="Egresos" value={formatCurrency(manualExpense, currency)} accent="text-red-500" />
+        <SummaryCard title="Saldo" value={formatCurrency(balance, currency)} accent="text-primary" />
+        <SummaryCard
+          title="IVA estimado"
+          value={formatCurrency(estimatedVat, currency)}
+          accent="text-amber-600"
+          helper={`${defaultTaxRate}%`}
+        />
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -192,7 +203,7 @@ const FinancePage = ({
                           movement.type === "income" ? "text-green-600" : "text-red-500"
                         }`}
                       >
-                        {movement.type === "income" ? "+" : "-"} {formatCurrency(movement.amount)}
+                        {movement.type === "income" ? "+" : "-"} {formatCurrency(movement.amount, currency)}
                       </td>
                     </tr>
                   ))}
@@ -207,6 +218,7 @@ const FinancePage = ({
             <p className="text-xs uppercase tracking-[0.3em] text-primary">Nuevo movimiento</p>
             <h3 className="text-xl font-semibold text-primary">Registro manual</h3>
             <p className="text-xs text-gray-500">Ingresa ingresos adicionales o egresos para completar tu flujo.</p>
+            <p className="text-[11px] text-gray-500">IVA por defecto configurado: {defaultTaxRate}%</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3 text-xs">
@@ -291,22 +303,25 @@ type SummaryCardProps = {
   title: string;
   value: string;
   accent: string;
+  helper?: string;
 };
 
-function SummaryCard({ title, value, accent }: SummaryCardProps) {
+function SummaryCard({ title, value, accent, helper }: SummaryCardProps) {
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4">
       <p className="text-xs uppercase tracking-[0.3em] text-primaryLight">{title}</p>
       <p className={`text-2xl font-semibold ${accent}`}>{value}</p>
-      <p className="text-xs text-gray-500">Actualizado en tiempo real</p>
+      <p className="text-xs text-gray-500">
+        {helper ? `Referencia: ${helper}` : "Actualizado en tiempo real"}
+      </p>
     </div>
   );
 }
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number, currency = "CLP") {
   return new Intl.NumberFormat("es-CL", {
     style: "currency",
-    currency: "CLP",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }
