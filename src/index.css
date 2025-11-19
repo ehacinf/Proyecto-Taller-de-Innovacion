@@ -8,3 +8,12 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+body.theme-dark {
+  background-color: #0f172a;
+  color: #f3f4f6;
+}
+
+body.text-large {
+  font-size: 1.05rem;
+}
+

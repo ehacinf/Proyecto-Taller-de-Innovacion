@@ -30,6 +30,10 @@ const pageDescriptions: Record<ActivePage, { title: string; subtitle: string }> 
     title: "Finanzas",
     subtitle: "Revisa ingresos, egresos y el saldo disponible en caja.",
   },
+  configuracion: {
+    title: "Configuración",
+    subtitle: "Personaliza tu negocio y preferencias del sistema.",
+  },
 };
 
 const menuItems: { label: string; page?: ActivePage }[] = [
@@ -41,7 +45,7 @@ const menuItems: { label: string; page?: ActivePage }[] = [
   { label: "Panel de IA" },
   { label: "Reportes" },
   { label: "Usuarios & Roles" },
-  { label: "Configuración" },
+  { label: "Configuración", page: "configuracion" },
 ];
 
 const MainLayout = ({
