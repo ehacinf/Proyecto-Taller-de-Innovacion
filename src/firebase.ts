@@ -9,7 +9,7 @@ const firebaseConfig = {
   projectId: "simpligest-17084",
   storageBucket: "simpligest-17084.firebasestorage.app",
   messagingSenderId: "10518317357",
-  appId: "1:10518317357:web:5a1cfbe03cc34219f0eba4",
+  appId: "1:10518317357:web:975bdbebd2552762f0eba4",
 };
 
 // Inicializar Firebase
