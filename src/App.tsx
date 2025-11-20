@@ -35,7 +35,11 @@ import type {
   Transaction,
   TransactionPayload,
   ProductInsight,
+  DashboardMetric,
+  DashboardViewType,
+  DashboardWidgetConfig,
 } from "./types";
+import { getDefaultDashboardLayout } from "./utils/dashboard";
 import { calculateProductInsights } from "./utils/insights";
 import {
   isSameDay,
@@ -64,6 +68,12 @@ function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<string | null>(null);
+  const [dashboardLayout, setDashboardLayout] = useState<DashboardWidgetConfig[]>(
+    getDefaultDashboardLayout()
+  );
+  const [dashboardLayoutLoading, setDashboardLayoutLoading] = useState(true);
+  const [dashboardLayoutSaving, setDashboardLayoutSaving] = useState(false);
+  const [dashboardLayoutFeedback, setDashboardLayoutFeedback] = useState<string | null>(null);
   const lowStockAlertedRef = useRef<Set<string>>(new Set());
   const summarySentRef = useRef<string | null>(null);
 
@@ -188,6 +198,56 @@ function App() {
       (error) => {
         console.error("Error cargando ventas", error);
         setLoadingSales(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setDashboardLayout(getDefaultDashboardLayout());
+      setDashboardLayoutLoading(false);
+      setDashboardLayoutFeedback(null);
+      return;
+    }
+
+    const layoutRef = doc(db, "dashboardLayouts", user.uid);
+    setDashboardLayoutLoading(true);
+
+    const unsubscribe = onSnapshot(
+      layoutRef,
+      async (snapshot) => {
+        try {
+          if (!snapshot.exists()) {
+            const defaultLayout = getDefaultDashboardLayout();
+            setDashboardLayout(defaultLayout);
+            await setDoc(layoutRef, {
+              layout: defaultLayout,
+              updatedAt: serverTimestamp(),
+              userId: user.uid,
+            });
+            setDashboardLayoutLoading(false);
+            return;
+          }
+
+          const data = snapshot.data();
+          const layoutFromDb = Array.isArray(data?.layout)
+            ? normalizeLayout(data.layout)
+            : getDefaultDashboardLayout();
+          setDashboardLayout(layoutFromDb);
+          setDashboardLayoutFeedback(null);
+          setDashboardLayoutLoading(false);
+        } catch (error) {
+          console.error("Error cargando panel personalizado", error);
+          setDashboardLayout(getDefaultDashboardLayout());
+          setDashboardLayoutLoading(false);
+        }
+      },
+      (error) => {
+        console.error("Error suscribiendo al panel", error);
+        setDashboardLayout(getDefaultDashboardLayout());
+        setDashboardLayoutLoading(false);
       }
     );
 
@@ -467,6 +527,32 @@ function App() {
     }
   }
 
+  function handleDashboardLayoutChange(nextLayout: DashboardWidgetConfig[]) {
+    setDashboardLayout(nextLayout);
+    setDashboardLayoutFeedback("Tienes cambios sin guardar en tu dashboard.");
+  }
+
+  async function handleSaveDashboardLayout(nextLayout?: DashboardWidgetConfig[]) {
+    if (!user) return;
+    setDashboardLayoutSaving(true);
+    setDashboardLayoutFeedback(null);
+    const layoutToSave = normalizeLayout(nextLayout ?? dashboardLayout);
+    try {
+      const layoutRef = doc(db, "dashboardLayouts", user.uid);
+      await setDoc(
+        layoutRef,
+        { layout: layoutToSave, updatedAt: serverTimestamp(), userId: user.uid },
+        { merge: true }
+      );
+      setDashboardLayoutFeedback("Diseño guardado. Se cargará al volver a ingresar.");
+    } catch (error) {
+      console.error("Error guardando diseño del dashboard", error);
+      setDashboardLayoutFeedback("No pudimos guardar tu diseño. Intenta nuevamente.");
+    } finally {
+      setDashboardLayoutSaving(false);
+    }
+  }
+
   const lastFiveSales = useMemo(() => sales.slice(0, 5), [sales]);
   const productInsights = useMemo<ProductInsight[]>(
     () => calculateProductInsights(products, sales),
@@ -517,6 +603,12 @@ function App() {
             loadingSales={loadingSales}
             latestSales={lastFiveSales}
             insights={productInsights}
+            layout={dashboardLayout}
+            onLayoutChange={handleDashboardLayoutChange}
+            onSaveLayout={() => handleSaveDashboardLayout()}
+            savingLayout={dashboardLayoutSaving}
+            layoutLoading={dashboardLayoutLoading}
+            layoutFeedback={dashboardLayoutFeedback}
           />
         )}
         {activePage === "inventario" && (
@@ -591,6 +683,43 @@ function App() {
 }
 
 export default App;
+
+function normalizeLayout(rawLayouts: unknown[]): DashboardWidgetConfig[] {
+  const allowedMetrics: DashboardMetric[] = [
+    "weeklySales",
+    "inventoryValue",
+    "criticalStock",
+    "topProducts",
+    "categorySales",
+    "latestSales",
+  ];
+
+  return rawLayouts
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const data = item as Record<string, any>;
+      const metric = allowedMetrics.includes(data.metric) ? data.metric : null;
+      if (!metric) return null;
+      const view: DashboardViewType =
+        data.view === "chart" || data.view === "table" || data.view === "number"
+          ? data.view
+          : "number";
+      const width: DashboardWidgetConfig["width"] = data.width === 2 ? 2 : 1;
+      const id: string = typeof data.id === "string"
+        ? data.id
+        : crypto.randomUUID
+        ? crypto.randomUUID()
+        : `widget-${Date.now()}`;
+      const title = typeof data.title === "string" ? data.title : undefined;
+      const widget: DashboardWidgetConfig = { id, metric, view, width };
+      if (title) {
+        widget.title = title;
+      }
+
+      return widget;
+    })
+    .filter((item): item is DashboardWidgetConfig => item !== null);
+}
 
 function buildDefaultSettingsDoc(email: string, userId: string) {
   return {

@@ -157,3 +157,21 @@ export type SiiDocumentStatus = {
   accepted?: boolean;
   siiFolio?: string;
 };
+
+export type DashboardMetric =
+  | "weeklySales"
+  | "inventoryValue"
+  | "criticalStock"
+  | "topProducts"
+  | "categorySales"
+  | "latestSales";
+
+export type DashboardViewType = "chart" | "number" | "table";
+
+export type DashboardWidgetConfig = {
+  id: string;
+  metric: DashboardMetric;
+  view: DashboardViewType;
+  width: 1 | 2;
+  title?: string;
+};
