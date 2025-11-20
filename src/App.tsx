@@ -192,6 +192,7 @@ function MainApp({ user }: { user: User }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingSales, setLoadingSales] = useState(true);
   const [loadingTransactions, setLoadingTransactions] = useState(true);
@@ -221,6 +222,8 @@ function MainApp({ user }: { user: User }) {
   const [dashboardLayoutFeedback, setDashboardLayoutFeedback] = useState<string | null>(null);
   const lowStockAlertedRef = useRef<Set<string>>(new Set());
   const summarySentRef = useRef<string | null>(null);
+
+  const markSyncCompleted = () => setLastSyncAt(new Date());
 
   useEffect(() => {
     if (!user) {
@@ -382,6 +385,7 @@ function MainApp({ user }: { user: User }) {
         setProducts(nextProducts);
         setInventoryError(null);
         setLoadingProducts(false);
+        markSyncCompleted();
       },
       (error) => {
         console.error("Error cargando productos", error);
@@ -456,6 +460,7 @@ function MainApp({ user }: { user: User }) {
 
         setSales(nextSales);
         setLoadingSales(false);
+        markSyncCompleted();
       },
       (error) => {
         console.error("Error cargando ventas", error);
@@ -563,6 +568,7 @@ function MainApp({ user }: { user: User }) {
         setTransactions(nextTransactions);
         setFinanceError(null);
         setLoadingTransactions(false);
+        markSyncCompleted();
       },
       (error) => {
         console.error("Error cargando transacciones", error);
@@ -601,6 +607,7 @@ function MainApp({ user }: { user: User }) {
             setSettings(normalizeSettings(data, currentUser.email || ""));
             setSettingsLoading(false);
             setSettingsError(null);
+            markSyncCompleted();
           },
           (error) => {
             console.error("Error cargando configuración", error);
@@ -1038,7 +1045,17 @@ function MainApp({ user }: { user: User }) {
         allowedPages={allowedPages}
         canCreateSale={userPermissions.createSales}
       >
-        {activePage === "inicio" && <HomePage onShowDemo={() => setActivePage("dashboard")} />}
+        {activePage === "inicio" && (
+          <HomePage
+            onShowDemo={() => setActivePage("dashboard")}
+            sales={sales}
+            products={products}
+            settings={settings}
+            loadingSales={loadingSales}
+            loadingProducts={loadingProducts}
+            lastSyncAt={lastSyncAt}
+          />
+        )}
         {activePage === "dashboard" && (
           <Dashboard
             products={products}
@@ -1305,9 +1322,47 @@ function normalizeSettings(
 
 type HomePageProps = {
   onShowDemo: () => void;
+  sales: Sale[];
+  products: Product[];
+  settings: BusinessSettings | null;
+  loadingSales: boolean;
+  loadingProducts: boolean;
+  lastSyncAt: Date | null;
 };
 
-function HomePage({ onShowDemo }: HomePageProps) {
+function formatHomeCurrency(value: number, currency?: string) {
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: currency || "CLP",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatRelativeSync(date: Date | null) {
+  if (!date) return "Sincronizando...";
+
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+
+  if (minutes < 1) return "Justo ahora";
+  if (minutes < 60) return `Hace ${minutes} min`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Hace ${hours} h`;
+
+  const days = Math.round(hours / 24);
+  return `Hace ${days} d`;
+}
+
+function HomePage({
+  onShowDemo,
+  sales,
+  products,
+  settings,
+  loadingSales,
+  loadingProducts,
+  lastSyncAt,
+}: HomePageProps) {
   const quickStats = [
     {
       title: "Inventario sincronizado",
@@ -1322,6 +1377,49 @@ function HomePage({ onShowDemo }: HomePageProps) {
       description: "Recibe alertas de stock crítico y márgenes negativos.",
     },
   ];
+
+  const currency = settings?.currency || "CLP";
+
+  const todaySummary = useMemo(() => {
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    let todayTotal = 0;
+    let yesterdayTotal = 0;
+
+    sales.forEach((sale) => {
+      if (isSameDay(sale.date, today)) {
+        todayTotal += sale.total;
+      } else if (isSameDay(sale.date, yesterday)) {
+        yesterdayTotal += sale.total;
+      }
+    });
+
+    const delta = yesterdayTotal
+      ? ((todayTotal - yesterdayTotal) / yesterdayTotal) * 100
+      : todayTotal > 0
+        ? 100
+        : 0;
+
+    return { total: todayTotal, delta };
+  }, [sales]);
+
+  const lowStockCount = useMemo(() => {
+    const defaultStockMin = settings?.defaultStockMin || 0;
+    return products.filter((product) => {
+      const threshold = product.stockMin || defaultStockMin;
+      if (!threshold) return false;
+      return product.stock <= threshold;
+    }).length;
+  }, [products, settings?.defaultStockMin]);
+
+  const todayDeltaLabel = todaySummary.delta === 0
+    ? "Sin variación vs. ayer"
+    : `${todaySummary.delta > 0 ? "+" : ""}${todaySummary.delta.toFixed(0)}% vs. ayer`;
+
+  const formattedLastSync = formatRelativeSync(lastSyncAt);
+  const openTickets = 0;
 
   return (
     <div className="space-y-6">
@@ -1352,23 +1450,41 @@ function HomePage({ onShowDemo }: HomePageProps) {
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-softGray rounded-2xl p-4">
             <p className="text-xs text-gray-500">Ventas hoy</p>
-            <p className="text-2xl font-semibold text-primary">$ 452.300</p>
-            <p className="text-[11px] text-green-600">+12% vs. ayer</p>
+            <p className="text-2xl font-semibold text-primary">
+              {loadingSales ? "Calculando..." : formatHomeCurrency(todaySummary.total, currency)}
+            </p>
+            <p className="text-[11px] text-green-600">
+              {loadingSales ? "Cargando ventas" : todayDeltaLabel}
+            </p>
           </div>
           <div className="bg-softGray rounded-2xl p-4">
             <p className="text-xs text-gray-500">Productos con stock crítico</p>
-            <p className="text-2xl font-semibold text-primary">7</p>
-            <p className="text-[11px] text-gray-500">Revísalos en Inventario</p>
+            <p className="text-2xl font-semibold text-primary">
+              {loadingProducts ? "—" : lowStockCount}
+            </p>
+            <p className="text-[11px] text-gray-500">
+              {loadingProducts
+                ? "Cargando inventario"
+                : lowStockCount > 0
+                  ? "Revísalos en Inventario"
+                  : "Sin productos en riesgo"}
+            </p>
           </div>
           <div className="bg-softGray rounded-2xl p-4">
             <p className="text-xs text-gray-500">Tickets abiertos</p>
-            <p className="text-2xl font-semibold text-primary">3</p>
-            <p className="text-[11px] text-gray-500">Soporte responde en 2h</p>
+            <p className="text-2xl font-semibold text-primary">{openTickets}</p>
+            <p className="text-[11px] text-gray-500">
+              {openTickets > 0 ? "En seguimiento" : "Sin tickets abiertos"}
+            </p>
           </div>
           <div className="bg-softGray rounded-2xl p-4">
             <p className="text-xs text-gray-500">Última sincronización</p>
-            <p className="text-2xl font-semibold text-primary">Hace 5 min</p>
-            <p className="text-[11px] text-gray-500">Todo funcionando ✅</p>
+            <p className="text-2xl font-semibold text-primary">
+              {formattedLastSync}
+            </p>
+            <p className="text-[11px] text-gray-500">
+              {lastSyncAt ? "Todo funcionando ✅" : "Esperando datos"}
+            </p>
           </div>
         </div>
       </section>
