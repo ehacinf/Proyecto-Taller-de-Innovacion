@@ -1,5 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from "react";
-import type { LoggerMessage } from "tesseract.js";
+import Tesseract from "tesseract.js";
 import type { InvoiceLineItem, InvoiceRecord } from "../../types";
 import { buildSiiXml, buildValidationWarnings, downloadXml, fileToDataUrl, parseInvoiceText } from "../../utils/invoice";
 
@@ -7,18 +7,6 @@ type InvoiceScannerProps = {
   defaultCurrency?: string;
   onProcessInvoice: (invoice: InvoiceRecord) => Promise<void>;
 };
-
-type TesseractModule = typeof import("tesseract.js");
-
-let tesseractModule: TesseractModule | null = null;
-
-async function loadTesseract() {
-  if (!tesseractModule) {
-    const mod = await import("tesseract.js");
-    tesseractModule = mod.default ? (mod.default as TesseractModule) : (mod as TesseractModule);
-  }
-  return tesseractModule as TesseractModule;
-}
 
 type UploadState = {
   file: File;
@@ -71,9 +59,8 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
     );
 
     try {
-      const Tesseract = await loadTesseract();
       const { data } = await Tesseract.recognize(upload.file, "spa+eng", {
-        logger: (message: LoggerMessage) => {
+        logger: (message) => {
           if (message.status === "recognizing text" && message.progress) {
             setUploads((prev) =>
               prev.map((item, idx) =>
