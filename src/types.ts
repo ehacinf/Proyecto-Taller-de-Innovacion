@@ -6,6 +6,47 @@ export type ActivePage =
   | "reportes"
   | "configuracion";
 
+export type RoleKey =
+  | "admin"
+  | "vendedor"
+  | "contador"
+  | "bodeguero"
+  | "personalizado";
+
+export type PermissionKey =
+  | "viewInventory"
+  | "editInventory"
+  | "viewSales"
+  | "createSales"
+  | "viewFinance"
+  | "manageTransactions"
+  | "manageUsers";
+
+export type PermissionSet = Record<PermissionKey, boolean>;
+
+export type RoleDefinition = {
+  key: RoleKey;
+  name: string;
+  description: string;
+  permissions: PermissionSet;
+};
+
+export type UserRoleAssignment = {
+  userId: string;
+  role: RoleKey;
+  permissions: PermissionSet;
+  updatedAt?: Date | null;
+  assignedBy?: string;
+};
+
+export type UserProfile = {
+  id: string;
+  nombre?: string;
+  negocio?: string;
+  tamano?: string;
+  email?: string;
+};
+
 export type AlertLevel = "estricto" | "normal" | "relajado";
 export type UITheme = "light" | "dark";
 export type UIFontSize = "normal" | "large";

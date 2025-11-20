@@ -16,6 +16,7 @@ type FinancePageProps = {
   defaultTaxRate?: number;
   currency?: string;
   settings?: BusinessSettings | null;
+  canManageFinances?: boolean;
 };
 
 type Movement = {
@@ -39,6 +40,7 @@ const FinancePage = ({
   defaultTaxRate = 19,
   currency = "CLP",
   settings,
+  canManageFinances = true,
 }: FinancePageProps) => {
   const [formValues, setFormValues] = useState({
     type: "income",
@@ -112,6 +114,10 @@ const FinancePage = ({
   }, [sales, transactions]);
 
   async function handleSendSummary() {
+    if (!canManageFinances) {
+      setSummaryError("No tienes permisos para enviar resúmenes");
+      return;
+    }
     if (!settings || !settings.whatsappEnabled) {
       setSummaryError("Activa WhatsApp y configura un número en Configuración.");
       return;
@@ -148,6 +154,10 @@ const FinancePage = ({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    if (!canManageFinances) {
+      setFormError("Tu rol no puede registrar movimientos");
+      return;
+    }
 
     const amount = Number(formValues.amount);
     if (!amount) {
@@ -257,6 +267,11 @@ const FinancePage = ({
             <h3 className="text-xl font-semibold text-primary">Registro manual</h3>
             <p className="text-xs text-gray-500">Ingresa ingresos adicionales o egresos para completar tu flujo.</p>
             <p className="text-[11px] text-gray-500">IVA por defecto configurado: {defaultTaxRate}%</p>
+            {!canManageFinances && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-2">
+                Solo tienes acceso de lectura. Solicita a un administrador registrar movimientos por ti.
+              </p>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3 text-xs">
@@ -267,7 +282,8 @@ const FinancePage = ({
                   name="type"
                   value={formValues.type}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                  disabled={!canManageFinances}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 >
                   <option value="income">Ingreso</option>
                   <option value="expense">Egreso</option>
@@ -280,7 +296,8 @@ const FinancePage = ({
                   name="date"
                   value={formValues.date}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                  disabled={!canManageFinances}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 />
               </div>
             </div>
@@ -291,7 +308,8 @@ const FinancePage = ({
                 name="amount"
                 value={formValues.amount}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canManageFinances}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 min={0}
               />
             </div>
@@ -302,7 +320,8 @@ const FinancePage = ({
                 name="description"
                 value={formValues.description}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canManageFinances}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 placeholder="Ej: Pago proveedor"
               />
             </div>
@@ -313,7 +332,8 @@ const FinancePage = ({
                 name="category"
                 value={formValues.category}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canManageFinances}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 placeholder="Operaciones"
               />
             </div>
@@ -323,7 +343,7 @@ const FinancePage = ({
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !canManageFinances}
               className="w-full bg-primary text-white py-2 rounded-xl text-sm hover:opacity-90 disabled:opacity-50"
             >
               Registrar
@@ -332,15 +352,22 @@ const FinancePage = ({
         </div>
       </div>
 
-      <InvoiceScanner defaultCurrency={currency} onProcessInvoice={onProcessInvoice} />
+      {canManageFinances ? (
+        <InvoiceScanner defaultCurrency={currency} onProcessInvoice={onProcessInvoice} />
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm p-4 text-xs text-gray-600">
+          <p className="text-sm font-semibold text-primary">Escaneo de facturas</p>
+          <p>No tienes permisos para ingresar facturas o modificar inventario desde esta vista.</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-primary">Notificaciones</p>
-              <h3 className="text-xl font-semibold text-primary">Resumen diario por WhatsApp</h3>
-              <p className="text-xs text-gray-500">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-primary">Notificaciones</p>
+                <h3 className="text-xl font-semibold text-primary">Resumen diario por WhatsApp</h3>
+                <p className="text-xs text-gray-500">
                 Envía el resumen de ventas del día al número configurado en Twilio.
               </p>
               <p className="text-[11px] text-gray-500">
@@ -353,15 +380,15 @@ const FinancePage = ({
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 text-xs">
-            <button
-              type="button"
-              disabled={summarySending || !settings?.whatsappEnabled}
-              onClick={handleSendSummary}
-              className="sm:w-auto bg-primary text-white px-4 py-2 rounded-xl text-sm hover:opacity-90 disabled:opacity-50"
-            >
-              {summarySending ? "Enviando..." : "Enviar resumen ahora"}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 text-xs">
+              <button
+                type="button"
+                disabled={summarySending || !settings?.whatsappEnabled || !canManageFinances}
+                onClick={handleSendSummary}
+                className="sm:w-auto bg-primary text-white px-4 py-2 rounded-xl text-sm hover:opacity-90 disabled:opacity-50"
+              >
+                {summarySending ? "Enviando..." : "Enviar resumen ahora"}
+              </button>
             <div className="flex-1 text-gray-600 bg-softGray rounded-xl px-3 py-2">
               <p>Destino: {settings?.whatsappNumber || settings?.phone || "Sin número"}</p>
               <p>Proveedor: {settings?.whatsappProvider || "twilio"}</p>

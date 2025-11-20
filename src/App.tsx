@@ -39,6 +39,10 @@ import type {
   DashboardViewType,
   DashboardWidgetConfig,
   InvoiceRecord,
+  PermissionSet,
+  RoleKey,
+  UserProfile,
+  UserRoleAssignment,
 } from "./types";
 import { getDefaultDashboardLayout } from "./utils/dashboard";
 import { calculateProductInsights } from "./utils/insights";
@@ -48,6 +52,11 @@ import {
   sendLowStockAlert,
   shouldSendDailySummary,
 } from "./utils/notifications";
+import {
+  getAllowedPagesFromPermissions,
+  mergePermissions,
+  ROLE_DEFINITIONS,
+} from "./utils/permissions";
 
 function App() {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
@@ -69,6 +78,14 @@ function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<RoleKey>("admin");
+  const [userPermissions, setUserPermissions] = useState<PermissionSet>(
+    ROLE_DEFINITIONS[0].permissions
+  );
+  const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesError, setRolesError] = useState<string | null>(null);
   const [dashboardLayout, setDashboardLayout] = useState<DashboardWidgetConfig[]>(
     getDefaultDashboardLayout()
   );
@@ -86,6 +103,127 @@ function App() {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setUserRole("admin");
+      setUserPermissions(ROLE_DEFINITIONS[0].permissions);
+      setRoleAssignments([]);
+      setUserProfiles([]);
+      setRolesLoading(false);
+      setRolesError(null);
+      return;
+    }
+
+    setRolesLoading(true);
+    const roleRef = doc(db, "userRoles", user.uid);
+
+    const unsubscribe = onSnapshot(
+      roleRef,
+      (snapshot) => {
+        const data = snapshot.data() as
+          | { role?: RoleKey; permissions?: Partial<PermissionSet> }
+          | undefined;
+        const roleKey = data?.role || "admin";
+        const merged = mergePermissions(roleKey, data?.permissions);
+        setUserRole(roleKey);
+        setUserPermissions(merged);
+        setRolesError(null);
+        setRolesLoading(false);
+
+        if (!snapshot.exists()) {
+          setDoc(
+            roleRef,
+            {
+              role: roleKey,
+              permissions: merged,
+              assignedBy: user.uid,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          ).catch((error) => console.error("Error inicializando rol", error));
+        }
+      },
+      (error) => {
+        console.error("Error cargando roles", error);
+        setRolesError("No pudimos cargar tus permisos.");
+        setRolesLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !userPermissions.manageUsers) {
+      setRoleAssignments([]);
+      setUserProfiles([]);
+      return;
+    }
+
+    const usersRef = collection(db, "users");
+    const rolesRef = collection(db, "userRoles");
+
+    const unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
+      const profiles: UserProfile[] = snapshot.docs.map((docSnapshot) => {
+        const data = docSnapshot.data() as Record<string, any>;
+        return {
+          id: docSnapshot.id,
+          nombre: data.nombre,
+          negocio: data.negocio,
+          tamano: data.tamano,
+          email: data.email,
+        };
+      });
+
+      if (!profiles.some((profile) => profile.id === user.uid)) {
+        profiles.push({ id: user.uid, email: user.email || "" });
+      }
+
+      setUserProfiles(profiles);
+    });
+
+    const unsubscribeRoles = onSnapshot(rolesRef, (snapshot) => {
+      const assignments: UserRoleAssignment[] = snapshot.docs.map((docSnapshot) => {
+        const data = docSnapshot.data() as Record<string, any>;
+        const roleKey = (data.role as RoleKey) || "admin";
+        const mergedPermissions = mergePermissions(roleKey, data.permissions);
+        return {
+          userId: docSnapshot.id,
+          role: roleKey,
+          permissions: mergedPermissions,
+          assignedBy: data.assignedBy,
+          updatedAt:
+            data.updatedAt instanceof Timestamp
+              ? data.updatedAt.toDate()
+              : data.updatedAt
+              ? new Date(data.updatedAt)
+              : null,
+        };
+      });
+
+      setRoleAssignments(assignments);
+    });
+
+    return () => {
+      unsubscribeUsers();
+      unsubscribeRoles();
+    };
+  }, [user, userPermissions.manageUsers]);
+
+  const allowedPages = useMemo(
+    () => getAllowedPagesFromPermissions(userPermissions),
+    [userPermissions]
+  );
+
+  useEffect(() => {
+    if (!allowedPages.has(activePage)) {
+      const fallback = (allowedPages.has("dashboard")
+        ? "dashboard"
+        : Array.from(allowedPages)[0]) as ActivePage | undefined;
+      setActivePage(fallback || "inicio");
+    }
+  }, [activePage, allowedPages]);
 
   useEffect(() => {
     if (!user) {
@@ -406,6 +544,9 @@ function App() {
     if (!user) {
       throw new Error("Usuario no autenticado");
     }
+    if (!userPermissions.editInventory) {
+      throw new Error("No tienes permisos para modificar el inventario");
+    }
     const createdAtValue = payload.createdAt
       ? Timestamp.fromDate(payload.createdAt)
       : serverTimestamp();
@@ -432,6 +573,9 @@ function App() {
     if (!user) {
       throw new Error("Usuario no autenticado");
     }
+    if (!userPermissions.editInventory) {
+      throw new Error("No tienes permisos para modificar el inventario");
+    }
     const productRef = doc(db, "products", id);
     const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
     await updateDoc(productRef, {
@@ -454,12 +598,18 @@ function App() {
     if (!user) {
       throw new Error("Usuario no autenticado");
     }
+    if (!userPermissions.editInventory) {
+      throw new Error("No tienes permisos para modificar el inventario");
+    }
     const productRef = doc(db, "products", id);
     await deleteDoc(productRef);
   }
 
   async function handleQuickSale(payload: QuickSalePayload) {
     setSaleError(null);
+    if (!userPermissions.createSales) {
+      throw new Error("No tienes permisos para registrar ventas");
+    }
     const product = products.find((p) => p.id === payload.productId);
 
     if (!product) {
@@ -492,6 +642,9 @@ function App() {
   }
 
   async function handleAddTransaction(payload: TransactionPayload) {
+    if (!userPermissions.manageTransactions) {
+      throw new Error("No tienes permisos para registrar movimientos");
+    }
     const dateValue = payload.date
       ? Timestamp.fromDate(payload.date)
       : serverTimestamp();
@@ -508,6 +661,9 @@ function App() {
   async function handleProcessInvoice(invoice: InvoiceRecord) {
     if (!user) {
       throw new Error("Usuario no autenticado");
+    }
+    if (!userPermissions.manageTransactions) {
+      throw new Error("No tienes permisos para procesar facturas");
     }
 
     const issueDate = invoice.issueDate ? new Date(invoice.issueDate) : new Date();
@@ -633,6 +789,36 @@ function App() {
     }
   }
 
+  function handleChangePage(page: ActivePage) {
+    if (allowedPages.has(page)) {
+      setActivePage(page);
+    }
+  }
+
+  function handleOpenQuickSale() {
+    if (!userPermissions.createSales) {
+      setSaleError("Tu rol no tiene permiso para registrar ventas.");
+      return;
+    }
+    setQuickSaleOpen(true);
+  }
+
+  async function handleUpdateUserRole(
+    userId: string,
+    role: RoleKey,
+    permissions: PermissionSet
+  ) {
+    if (!user || !userPermissions.manageUsers) {
+      throw new Error("No tienes permisos para asignar roles");
+    }
+
+    await setDoc(
+      doc(db, "userRoles", userId),
+      { role, permissions, updatedAt: serverTimestamp(), assignedBy: user.uid },
+      { merge: true }
+    );
+  }
+
   const lastFiveSales = useMemo(() => sales.slice(0, 5), [sales]);
   const productInsights = useMemo<ProductInsight[]>(
     () => calculateProductInsights(products, sales),
@@ -667,12 +853,14 @@ function App() {
     <>
       <MainLayout
         activePage={activePage}
-        onChangePage={setActivePage}
-        onOpenQuickSale={() => setQuickSaleOpen(true)}
+        onChangePage={handleChangePage}
+        onOpenQuickSale={handleOpenQuickSale}
         onSignOut={handleSignOut}
         userEmail={user.email || ""}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
+        allowedPages={allowedPages}
+        canCreateSale={userPermissions.createSales}
       >
         {activePage === "inicio" && <HomePage onShowDemo={() => setActivePage("dashboard")} />}
         {activePage === "dashboard" && (
@@ -704,6 +892,7 @@ function App() {
             defaultUnit={settings?.defaultUnit}
             currency={settings?.currency}
             productInsights={productInsights}
+            canEditInventory={userPermissions.editInventory}
           />
         )}
         {activePage === "finanzas" && (
@@ -718,6 +907,7 @@ function App() {
             defaultTaxRate={settings?.defaultTaxRate}
             currency={settings?.currency}
             settings={settings}
+            canManageFinances={userPermissions.manageTransactions}
           />
         )}
         {activePage === "reportes" && (
@@ -739,12 +929,22 @@ function App() {
             errorMessage={settingsError}
             userEmail={user.email || ""}
             onSignOut={handleSignOut}
+            roleDefinitions={ROLE_DEFINITIONS}
+            userRoleAssignments={roleAssignments}
+            userProfiles={userProfiles}
+            onUpdateUserRole={handleUpdateUserRole}
+            canManageUsers={userPermissions.manageUsers}
+            currentUserId={user.uid}
+            currentRole={userRole}
+            currentPermissions={userPermissions}
+            rolesError={rolesError}
+            rolesLoading={rolesLoading}
           />
         )}
       </MainLayout>
 
       <QuickSaleModal
-        open={quickSaleOpen}
+        open={quickSaleOpen && userPermissions.createSales}
         products={products}
         onClose={() => setQuickSaleOpen(false)}
         onSubmit={async (values) => {
