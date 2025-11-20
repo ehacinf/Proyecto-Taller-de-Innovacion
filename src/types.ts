@@ -29,6 +29,18 @@ export type BusinessSettings = {
   alertStockEnabled: boolean;
   alertLevel: AlertLevel;
   alertEmail: string;
+  whatsappEnabled: boolean;
+  whatsappNumber: string;
+  whatsappFrom?: string;
+  whatsappProvider?: "twilio";
+  whatsappDailySummaryEnabled: boolean;
+  whatsappDailySummaryTime?: string;
+  siiEnabled: boolean;
+  siiEnvironment?: "produccion" | "certificacion";
+  siiApiUrl?: string;
+  siiApiKey?: string;
+  siiResolutionNumber?: string;
+  siiOffice?: string;
   uiTheme: UITheme;
   uiFontSize: UIFontSize;
   planName: string;
@@ -111,4 +123,37 @@ export type TransactionPayload = {
   description: string;
   category: string;
   date?: Date | null;
+};
+
+export type SiiDocumentItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  productId?: string;
+};
+
+export type SiiDocumentRequest = {
+  type: "boleta" | "factura";
+  folio?: string;
+  customerName: string;
+  customerTaxId: string;
+  customerEmail?: string;
+  items: SiiDocumentItem[];
+  issueDate?: Date;
+  total?: number;
+};
+
+export type SiiDocumentResponse = {
+  trackId: string;
+  status: string;
+  pdfUrl?: string;
+  siiFolio?: string;
+};
+
+export type SiiDocumentStatus = {
+  trackId: string;
+  status: string;
+  receivedAt?: string;
+  accepted?: boolean;
+  siiFolio?: string;
 };

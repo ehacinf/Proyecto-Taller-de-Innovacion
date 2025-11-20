@@ -32,6 +32,17 @@ type FormState = {
   alertStockEnabled: boolean;
   alertLevel: BusinessSettings["alertLevel"];
   alertEmail: string;
+  whatsappEnabled: boolean;
+  whatsappNumber: string;
+  whatsappFrom: string;
+  whatsappDailySummaryEnabled: boolean;
+  whatsappDailySummaryTime: string;
+  siiEnabled: boolean;
+  siiEnvironment: BusinessSettings["siiEnvironment"];
+  siiApiUrl: string;
+  siiApiKey: string;
+  siiResolutionNumber: string;
+  siiOffice: string;
   uiTheme: BusinessSettings["uiTheme"];
   uiFontSize: BusinessSettings["uiFontSize"];
 };
@@ -64,6 +75,17 @@ function buildFormState(settings: BusinessSettings | null, fallbackEmail: string
     alertStockEnabled: settings?.alertStockEnabled ?? false,
     alertLevel: settings?.alertLevel ?? "normal",
     alertEmail: settings?.alertEmail || settings?.contactEmail || fallbackEmail,
+    whatsappEnabled: settings?.whatsappEnabled ?? false,
+    whatsappNumber: settings?.whatsappNumber ?? settings?.phone ?? "",
+    whatsappFrom: settings?.whatsappFrom ?? "",
+    whatsappDailySummaryEnabled: settings?.whatsappDailySummaryEnabled ?? false,
+    whatsappDailySummaryTime: settings?.whatsappDailySummaryTime ?? "21:00",
+    siiEnabled: settings?.siiEnabled ?? false,
+    siiEnvironment: settings?.siiEnvironment ?? "certificacion",
+    siiApiUrl: settings?.siiApiUrl ?? "",
+    siiApiKey: settings?.siiApiKey ?? "",
+    siiResolutionNumber: settings?.siiResolutionNumber ?? "",
+    siiOffice: settings?.siiOffice ?? "",
     uiTheme: settings?.uiTheme ?? "light",
     uiFontSize: settings?.uiFontSize ?? "normal",
   };
@@ -137,6 +159,17 @@ const SettingsPage = ({
       alertStockEnabled: formState.alertStockEnabled,
       alertLevel: formState.alertLevel,
       alertEmail: formState.alertEmail.trim() || formState.contactEmail.trim(),
+      whatsappEnabled: formState.whatsappEnabled,
+      whatsappNumber: formState.whatsappNumber.trim(),
+      whatsappFrom: formState.whatsappFrom.trim(),
+      whatsappDailySummaryEnabled: formState.whatsappDailySummaryEnabled,
+      whatsappDailySummaryTime: formState.whatsappDailySummaryTime,
+      siiEnabled: formState.siiEnabled,
+      siiEnvironment: formState.siiEnvironment,
+      siiApiUrl: formState.siiApiUrl.trim(),
+      siiApiKey: formState.siiApiKey.trim(),
+      siiResolutionNumber: formState.siiResolutionNumber.trim(),
+      siiOffice: formState.siiOffice.trim(),
       uiTheme: formState.uiTheme,
       uiFontSize: formState.uiFontSize,
     });
@@ -429,6 +462,174 @@ const SettingsPage = ({
               disabled={!formState.alertStockEnabled}
             />
           </label>
+        </div>
+      </section>
+
+      <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary">WhatsApp</p>
+          <h3 className="text-lg font-semibold text-primary">Alertas y resúmenes automáticos</h3>
+          <p className="text-xs text-gray-500">
+            Usa Twilio para notificar stock crítico y enviar el resumen de ventas diario.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <label className="flex items-center gap-2 text-gray-700">
+            <input
+              type="checkbox"
+              name="whatsappEnabled"
+              checked={formState.whatsappEnabled}
+              onChange={handleFieldChange}
+              className="rounded"
+            />
+            Activar notificaciones por WhatsApp
+          </label>
+          <label className="flex items-center gap-2 text-gray-700">
+            <input
+              type="checkbox"
+              name="whatsappDailySummaryEnabled"
+              checked={formState.whatsappDailySummaryEnabled}
+              onChange={handleFieldChange}
+              className="rounded"
+              disabled={!formState.whatsappEnabled}
+            />
+            Enviar resumen diario automático
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">Número de WhatsApp destino</span>
+            <input
+              type="text"
+              name="whatsappNumber"
+              value={formState.whatsappNumber}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              placeholder="Ej: +56912345678"
+              disabled={!formState.whatsappEnabled}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">Número emisor (Twilio)</span>
+            <input
+              type="text"
+              name="whatsappFrom"
+              value={formState.whatsappFrom}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              placeholder="whatsapp:+14155238886"
+              disabled={!formState.whatsappEnabled}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">Horario diario (HH:MM)</span>
+            <input
+              type="time"
+              name="whatsappDailySummaryTime"
+              value={formState.whatsappDailySummaryTime}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              disabled={!formState.whatsappEnabled}
+            />
+          </label>
+        </div>
+        <p className="text-[11px] text-gray-500">
+          Las credenciales de Twilio se leen desde variables de entorno de Vite. No almacenes tokens sensibles en
+          el navegador.
+        </p>
+      </section>
+
+      <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary">SII Chile</p>
+          <h3 className="text-lg font-semibold text-primary">Facturación electrónica</h3>
+          <p className="text-xs text-gray-500">
+            Configura las credenciales del Servicio de Impuestos Internos para emitir boletas y facturas.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <label className="flex items-center gap-2 text-gray-700">
+            <input
+              type="checkbox"
+              name="siiEnabled"
+              checked={formState.siiEnabled}
+              onChange={handleFieldChange}
+              className="rounded"
+            />
+            Habilitar integración con SII
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">Ambiente</span>
+            <select
+              name="siiEnvironment"
+              value={formState.siiEnvironment}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              disabled={!formState.siiEnabled}
+            >
+              <option value="certificacion">Certificación</option>
+              <option value="produccion">Producción</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">N° resolución</span>
+            <input
+              type="text"
+              name="siiResolutionNumber"
+              value={formState.siiResolutionNumber}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              disabled={!formState.siiEnabled}
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">API URL</span>
+            <input
+              type="text"
+              name="siiApiUrl"
+              value={formState.siiApiUrl}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              placeholder="https://tu-funcion.cloud/sii"
+              disabled={!formState.siiEnabled}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">API Key</span>
+            <input
+              type="text"
+              name="siiApiKey"
+              value={formState.siiApiKey}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              disabled={!formState.siiEnabled}
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600">Oficina / sucursal</span>
+            <input
+              type="text"
+              name="siiOffice"
+              value={formState.siiOffice}
+              onChange={handleFieldChange}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              placeholder="Casa matriz"
+              disabled={!formState.siiEnabled}
+            />
+          </label>
+          <div className="text-[11px] text-gray-500 bg-softGray rounded-xl p-3">
+            <p className="font-semibold text-primary">Recomendaciones</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Registra el certificado digital y CAF en tu backend seguro.</li>
+              <li>Usa este API Key solo en funciones protegidas.</li>
+              <li>Controla los folios emitidos para cada sucursal.</li>
+            </ul>
+          </div>
         </div>
       </section>
 

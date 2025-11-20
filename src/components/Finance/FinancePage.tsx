@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import type { Sale, Transaction, TransactionPayload } from "../../types";
+import type { BusinessSettings, Sale, Transaction, TransactionPayload } from "../../types";
+import { sendDailySalesSummary } from "../../utils/notifications";
+import SiiIntegrationPanel from "./SiiIntegrationPanel";
 
 type FinancePageProps = {
   sales: Sale[];
@@ -10,6 +12,7 @@ type FinancePageProps = {
   errorMessage?: string | null;
   defaultTaxRate?: number;
   currency?: string;
+  settings?: BusinessSettings | null;
 };
 
 type Movement = {
@@ -31,6 +34,7 @@ const FinancePage = ({
   errorMessage,
   defaultTaxRate = 19,
   currency = "CLP",
+  settings,
 }: FinancePageProps) => {
   const [formValues, setFormValues] = useState({
     type: "income",
@@ -42,6 +46,9 @@ const FinancePage = ({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [summarySending, setSummarySending] = useState(false);
+  const [summaryFeedback, setSummaryFeedback] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   const salesIncome = useMemo(
     () => sales.reduce((acc, sale) => acc + sale.total, 0),
@@ -99,6 +106,33 @@ const FinancePage = ({
       (a, b) => b.date.getTime() - a.date.getTime()
     );
   }, [sales, transactions]);
+
+  async function handleSendSummary() {
+    if (!settings || !settings.whatsappEnabled) {
+      setSummaryError("Activa WhatsApp y configura un número en Configuración.");
+      return;
+    }
+
+    setSummarySending(true);
+    setSummaryError(null);
+    setSummaryFeedback(null);
+
+    try {
+      await sendDailySalesSummary(
+        sales,
+        settings,
+        currency,
+        settings.businessName || "SimpliGest"
+      );
+      setSummaryFeedback("Resumen de ventas enviado por WhatsApp.");
+    } catch (error: any) {
+      console.error("Error enviando resumen diario", error);
+      setSummaryError(error?.message || "No pudimos enviar el resumen");
+    } finally {
+      setSummarySending(false);
+      setTimeout(() => setSummaryFeedback(null), 4000);
+    }
+  }
 
   function handleChange(
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -292,6 +326,51 @@ const FinancePage = ({
             </button>
           </form>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-primary">Notificaciones</p>
+              <h3 className="text-xl font-semibold text-primary">Resumen diario por WhatsApp</h3>
+              <p className="text-xs text-gray-500">
+                Envía el resumen de ventas del día al número configurado en Twilio.
+              </p>
+              <p className="text-[11px] text-gray-500">
+                Estado: {settings?.whatsappEnabled ? "Activado" : "Desactivado"}
+              </p>
+            </div>
+            <div className="text-right text-xs text-gray-500">
+              <p>Ventas registradas: {sales.length}</p>
+              <p>Moneda: {currency}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 text-xs">
+            <button
+              type="button"
+              disabled={summarySending || !settings?.whatsappEnabled}
+              onClick={handleSendSummary}
+              className="sm:w-auto bg-primary text-white px-4 py-2 rounded-xl text-sm hover:opacity-90 disabled:opacity-50"
+            >
+              {summarySending ? "Enviando..." : "Enviar resumen ahora"}
+            </button>
+            <div className="flex-1 text-gray-600 bg-softGray rounded-xl px-3 py-2">
+              <p>Destino: {settings?.whatsappNumber || settings?.phone || "Sin número"}</p>
+              <p>Proveedor: {settings?.whatsappProvider || "twilio"}</p>
+            </div>
+          </div>
+
+          {summaryFeedback && <p className="text-green-600 text-xs">{summaryFeedback}</p>}
+          {summaryError && <p className="text-red-500 text-xs">{summaryError}</p>}
+
+          <div className="text-[11px] text-gray-500">
+            Consejo: programa un Cron o Cloud Function para ejecutar este envío automático al cierre de jornada.
+          </div>
+        </div>
+
+        <SiiIntegrationPanel settings={settings} currency={currency} sales={sales} />
       </div>
     </div>
   );
