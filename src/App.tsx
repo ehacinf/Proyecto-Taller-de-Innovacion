@@ -59,6 +59,37 @@ import {
 } from "./utils/permissions";
 
 function App() {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-softGray">
+        <div className="text-center space-y-2">
+          <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-gray-500">Cargando SimpliGest...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  return <MainApp user={user} />;
+}
+
+function MainApp({ user }: { user: User }) {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -68,8 +99,6 @@ function App() {
   const [loadingTransactions, setLoadingTransactions] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [financeError, setFinanceError] = useState<string | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
@@ -94,21 +123,6 @@ function App() {
   const [dashboardLayoutFeedback, setDashboardLayoutFeedback] = useState<string | null>(null);
   const lowStockAlertedRef = useRef<Set<string>>(new Set());
   const summarySentRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthLoading(false);
-
-      if (firebaseUser) {
-        console.log("Usuario autenticado", firebaseUser);
-      } else {
-        console.log("No hay usuario autenticado");
-      }
-    });
-
-    return unsubscribe;
-  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -263,7 +277,7 @@ function App() {
             salePrice: Number(raw.salePrice ?? raw.precioVenta ?? raw.costo ?? 0),
             supplier: raw.supplier ?? raw.proveedor ?? "",
             createdAt,
-            userId: raw.userId,
+            userId: raw.userId ?? user.uid,
           };
         });
 
@@ -559,6 +573,8 @@ function App() {
       throw new Error("No tienes permisos para modificar el inventario");
     }
 
+    const ownerId = payload.userId || user.uid;
+
     try {
       const createdAtValue = payload.createdAt
         ? Timestamp.fromDate(payload.createdAt)
@@ -578,7 +594,7 @@ function App() {
         supplier: payload.supplier,
         proveedor: payload.supplier,
         createdAt: createdAtValue,
-        userId: user.uid,
+        userId: ownerId,
       });
     } catch (error) {
       console.error("Error agregando producto en Firestore", error);
@@ -593,6 +609,8 @@ function App() {
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
+
+    const ownerId = payload.userId || user.uid;
 
     try {
       const productRef = doc(db, "products", id);
@@ -609,7 +627,7 @@ function App() {
         salePrice: payload.salePrice,
         supplier: payload.supplier,
         proveedor: payload.supplier,
-        userId: user.uid,
+        userId: ownerId,
       });
     } catch (error) {
       console.error("Error actualizando producto en Firestore", error);
@@ -892,21 +910,6 @@ function App() {
     }
   }
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-softGray">
-        <div className="text-center space-y-2">
-          <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-gray-500">Cargando SimpliGest...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <AuthPage />;
-  }
-
   return (
     <>
       <MainLayout
@@ -951,6 +954,7 @@ function App() {
             currency={settings?.currency}
             productInsights={productInsights}
             canEditInventory={userPermissions.editInventory}
+            userId={user.uid}
           />
         )}
         {activePage === "finanzas" && (
