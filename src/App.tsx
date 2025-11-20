@@ -8,7 +8,6 @@ import {
   doc,
   getDoc,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -329,31 +328,32 @@ function MainApp({ user }: { user: User }) {
     setLoadingSales(true);
     const salesQuery = query(
       collection(db, "sales"),
-      where("userId", "==", user.uid),
-      orderBy("date", "desc")
+      where("userId", "==", user.uid)
     );
 
     const unsubscribe = onSnapshot(
       salesQuery,
       (snapshot) => {
-        const nextSales: Sale[] = snapshot.docs.map((docSnapshot) => {
-          const raw = docSnapshot.data() as Record<string, any>;
-          const dateValue = raw.date
-            ? raw.date instanceof Timestamp
-              ? raw.date.toDate()
-              : new Date(raw.date)
-            : new Date();
+        const nextSales: Sale[] = snapshot.docs
+          .map((docSnapshot) => {
+            const raw = docSnapshot.data() as Record<string, any>;
+            const dateValue = raw.date
+              ? raw.date instanceof Timestamp
+                ? raw.date.toDate()
+                : new Date(raw.date)
+              : new Date();
 
-          return {
-            id: docSnapshot.id,
-            productId: raw.productId ?? "",
-            productName: raw.productName ?? "Venta",
-            quantity: Number(raw.quantity ?? 0),
-            unitPrice: Number(raw.unitPrice ?? raw.salePrice ?? 0),
-            total: Number(raw.total ?? 0),
-            date: dateValue,
-          };
-        });
+            return {
+              id: docSnapshot.id,
+              productId: raw.productId ?? "",
+              productName: raw.productName ?? "Venta",
+              quantity: Number(raw.quantity ?? 0),
+              unitPrice: Number(raw.unitPrice ?? raw.salePrice ?? 0),
+              total: Number(raw.total ?? 0),
+              date: dateValue,
+            };
+          })
+          .sort((a, b) => b.date.getTime() - a.date.getTime());
 
         setSales(nextSales);
         setLoadingSales(false);
@@ -432,30 +432,34 @@ function MainApp({ user }: { user: User }) {
     setLoadingTransactions(true);
     const transactionsQuery = query(
       collection(db, "transactions"),
-      where("userId", "==", user.uid),
-      orderBy("date", "desc")
+      where("userId", "==", user.uid)
     );
 
     const unsubscribe = onSnapshot(
       transactionsQuery,
       (snapshot) => {
-        const nextTransactions: Transaction[] = snapshot.docs.map((docSnapshot) => {
-          const raw = docSnapshot.data() as Record<string, any>;
-          const dateValue = raw.date
-            ? raw.date instanceof Timestamp
-              ? raw.date.toDate()
-              : new Date(raw.date)
-            : new Date();
+        const nextTransactions: Transaction[] = snapshot.docs
+          .map((docSnapshot) => {
+            const raw = docSnapshot.data() as Record<string, any>;
+            const dateValue = raw.date
+              ? raw.date instanceof Timestamp
+                ? raw.date.toDate()
+                : new Date(raw.date)
+              : new Date();
 
-          return {
-            id: docSnapshot.id,
-            type: raw.type === "expense" ? "expense" : "income",
-            amount: Number(raw.amount ?? 0),
-            description: raw.description ?? "Movimiento",
-            category: raw.category ?? "General",
-            date: dateValue,
-          };
-        });
+            const transactionType: Transaction["type"] =
+              raw.type === "expense" ? "expense" : "income";
+
+            return {
+              id: docSnapshot.id,
+              type: transactionType,
+              amount: Number(raw.amount ?? 0),
+              description: raw.description ?? "Movimiento",
+              category: raw.category ?? "General",
+              date: dateValue,
+            };
+          })
+          .sort((a, b) => b.date.getTime() - a.date.getTime());
 
         setTransactions(nextTransactions);
         setFinanceError(null);

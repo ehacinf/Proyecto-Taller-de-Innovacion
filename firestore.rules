@@ -27,6 +27,21 @@ service cloud.firestore {
       allow read, update, delete: if isOwnerResource();
     }
 
+    match /inventories/{inventoryId} {
+      allow create: if isOwnerField();
+      allow read, update, delete: if isOwnerResource();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /userRoles/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
     match /invoices/{invoiceId} {
       allow create: if isOwnerField();
       allow read, update, delete: if isOwnerResource();
