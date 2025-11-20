@@ -38,6 +38,7 @@ import type {
   DashboardMetric,
   DashboardViewType,
   DashboardWidgetConfig,
+  InvoiceRecord,
 } from "./types";
 import { getDefaultDashboardLayout } from "./utils/dashboard";
 import { calculateProductInsights } from "./utils/insights";
@@ -504,6 +505,85 @@ function App() {
     });
   }
 
+  async function handleProcessInvoice(invoice: InvoiceRecord) {
+    if (!user) {
+      throw new Error("Usuario no autenticado");
+    }
+
+    const issueDate = invoice.issueDate ? new Date(invoice.issueDate) : new Date();
+    const currencyToUse = invoice.currency || settings?.currency || "CLP";
+    const normalizedItems = invoice.items.map((item) => {
+      const quantity = Number(item.quantity) || 1;
+      const unitPrice = item.unitPrice || (item.total && quantity ? item.total / quantity : 0);
+      return {
+        ...item,
+        quantity,
+        unitPrice,
+        total: item.total || unitPrice * quantity,
+      };
+    });
+
+    await addDoc(collection(db, "transactions"), {
+      type: "expense",
+      amount: invoice.total,
+      description: `Factura ${invoice.invoiceNumber} - ${invoice.supplier}`,
+      category: "Factura proveedor",
+      date: Timestamp.fromDate(issueDate),
+    });
+
+    await Promise.all(
+      normalizedItems.map(async (item) => {
+        const existing = products.find(
+          (product) => product.name.toLowerCase() === item.description.toLowerCase()
+        );
+        const productQuantity = item.quantity || 1;
+        const unitPrice = item.unitPrice || 0;
+
+        if (existing) {
+          const productRef = doc(db, "products", existing.id);
+          await updateDoc(productRef, {
+            stock: existing.stock + productQuantity,
+            purchasePrice: unitPrice || existing.purchasePrice,
+            supplier: invoice.supplier || existing.supplier,
+            proveedor: invoice.supplier || existing.supplier,
+          });
+        } else {
+          await addDoc(collection(db, "products"), {
+            name: item.description,
+            nombre: item.description,
+            category: "Compras factura",
+            categoria: "Compras factura",
+            stock: productQuantity,
+            stockMin: settings?.defaultStockMin ?? 0,
+            unit: settings?.defaultUnit || "unidades",
+            purchasePrice: unitPrice,
+            salePrice: unitPrice ? unitPrice * 1.25 : 0,
+            supplier: invoice.supplier,
+            proveedor: invoice.supplier,
+            createdAt: Timestamp.fromDate(issueDate),
+            userId: user.uid,
+          });
+        }
+      })
+    );
+
+    await addDoc(collection(db, "invoices"), {
+      supplier: invoice.supplier,
+      invoiceNumber: invoice.invoiceNumber,
+      issueDate: Timestamp.fromDate(issueDate),
+      total: invoice.total,
+      currency: currencyToUse,
+      items: normalizedItems,
+      fileName: invoice.fileName,
+      fileType: invoice.fileType,
+      previewUrl: invoice.previewUrl,
+      rawText: invoice.rawText,
+      validationWarnings: invoice.validationWarnings || [],
+      createdAt: serverTimestamp(),
+      userId: user.uid,
+    });
+  }
+
   async function handleSaveSettings(payload: Partial<BusinessSettings>) {
     if (!user) {
       return;
@@ -633,6 +713,7 @@ function App() {
             loadingSales={loadingSales}
             loadingTransactions={loadingTransactions}
             onAddTransaction={handleAddTransaction}
+            onProcessInvoice={handleProcessInvoice}
             errorMessage={financeError}
             defaultTaxRate={settings?.defaultTaxRate}
             currency={settings?.currency}
