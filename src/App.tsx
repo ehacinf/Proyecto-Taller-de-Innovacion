@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
 import {
@@ -37,6 +37,12 @@ import type {
   ProductInsight,
 } from "./types";
 import { calculateProductInsights } from "./utils/insights";
+import {
+  isSameDay,
+  sendDailySalesSummary,
+  sendLowStockAlert,
+  shouldSendDailySummary,
+} from "./utils/notifications";
 
 function App() {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
@@ -58,6 +64,8 @@ function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<string | null>(null);
+  const lowStockAlertedRef = useRef<Set<string>>(new Set());
+  const summarySentRef = useRef<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -117,6 +125,30 @@ function App() {
 
     return () => unsubscribe();
   }, [user]);
+
+  useEffect(() => {
+    if (!settings?.whatsappEnabled || !settings.alertStockEnabled) {
+      return;
+    }
+
+    const multiplier = settings.alertLevel === "estricto" ? 1 : settings.alertLevel === "relajado" ? 1.8 : 1.4;
+
+    products.forEach((product) => {
+      const minStock = product.stockMin || settings.defaultStockMin || 0;
+      if (!minStock) return;
+
+      const threshold = Math.ceil(minStock * multiplier);
+      if (product.stock <= threshold) {
+        if (!lowStockAlertedRef.current.has(product.id)) {
+          sendLowStockAlert(product, settings, settings.businessName || "SimpliGest")
+            .then(() => lowStockAlertedRef.current.add(product.id))
+            .catch((error) => console.error("Error enviando alerta de stock bajo", error));
+        }
+      } else {
+        lowStockAlertedRef.current.delete(product.id);
+      }
+    });
+  }, [products, settings]);
 
   useEffect(() => {
     if (!user) {
@@ -273,6 +305,41 @@ function App() {
   useEffect(() => {
     document.body.classList.toggle("text-large", settings?.uiFontSize === "large");
   }, [settings?.uiFontSize]);
+
+  useEffect(() => {
+    if (!settings?.whatsappEnabled || !settings.whatsappDailySummaryEnabled) {
+      return;
+    }
+
+    const now = new Date();
+    const todayKey = now.toISOString().slice(0, 10);
+
+    if (summarySentRef.current && summarySentRef.current !== todayKey) {
+      summarySentRef.current = null;
+    }
+
+    if (summarySentRef.current === todayKey) {
+      return;
+    }
+
+    const todaysSales = sales.filter((sale) => isSameDay(sale.date, now));
+    if (!todaysSales.length) return;
+
+    if (!shouldSendDailySummary(now, settings.whatsappDailySummaryTime)) {
+      return;
+    }
+
+    sendDailySalesSummary(
+      sales,
+      settings,
+      settings.currency || "CLP",
+      settings.businessName || "SimpliGest"
+    )
+      .then(() => {
+        summarySentRef.current = todayKey;
+      })
+      .catch((error) => console.error("Error enviando resumen diario automático", error));
+  }, [sales, settings]);
 
   async function handleAddProduct(payload: ProductPayload) {
     if (!user) {
@@ -477,6 +544,7 @@ function App() {
             errorMessage={financeError}
             defaultTaxRate={settings?.defaultTaxRate}
             currency={settings?.currency}
+            settings={settings}
           />
         )}
         {activePage === "reportes" && (
@@ -544,6 +612,18 @@ function buildDefaultSettingsDoc(email: string, userId: string) {
     alertStockEnabled: false,
     alertLevel: "normal",
     alertEmail: email,
+    whatsappEnabled: false,
+    whatsappNumber: "",
+    whatsappFrom: "",
+    whatsappProvider: "twilio",
+    whatsappDailySummaryEnabled: false,
+    whatsappDailySummaryTime: "21:00",
+    siiEnabled: false,
+    siiEnvironment: "certificacion",
+    siiApiUrl: "",
+    siiApiKey: "",
+    siiResolutionNumber: "",
+    siiOffice: "",
     uiTheme: "light",
     uiFontSize: "normal",
     planName: "Beta gratuita – sin costo",
@@ -580,6 +660,15 @@ function normalizeSettings(
     data?.uiFontSize === "large" ? "large" : "normal";
   const contactEmail = data?.contactEmail ?? fallbackEmail;
   const alertEmail = data?.alertEmail ?? contactEmail;
+  const whatsappEnabled = Boolean(data?.whatsappEnabled);
+  const whatsappDailySummaryEnabled = Boolean(data?.whatsappDailySummaryEnabled);
+  const whatsappNumber = data?.whatsappNumber ?? data?.phone ?? "";
+  const whatsappFrom = data?.whatsappFrom ?? data?.twilioFrom ?? "";
+  const whatsappProvider: BusinessSettings["whatsappProvider"] = "twilio";
+  const siiEnvironment =
+    data?.siiEnvironment === "produccion" || data?.siiEnvironment === "certificacion"
+      ? data.siiEnvironment
+      : "certificacion";
 
   return {
     businessName: data?.businessName ?? "",
@@ -601,6 +690,18 @@ function normalizeSettings(
     alertStockEnabled: Boolean(data?.alertStockEnabled),
     alertLevel: normalizedAlertLevel,
     alertEmail,
+    whatsappEnabled,
+    whatsappNumber,
+    whatsappFrom,
+    whatsappProvider,
+    whatsappDailySummaryEnabled,
+    whatsappDailySummaryTime: data?.whatsappDailySummaryTime ?? "21:00",
+    siiEnabled: Boolean(data?.siiEnabled),
+    siiEnvironment,
+    siiApiUrl: data?.siiApiUrl ?? "",
+    siiApiKey: data?.siiApiKey ?? "",
+    siiResolutionNumber: data?.siiResolutionNumber ?? "",
+    siiOffice: data?.siiOffice ?? "",
     uiTheme: theme,
     uiFontSize: fontSize,
     planName: data?.planName ?? "Beta gratuita – sin costo",
