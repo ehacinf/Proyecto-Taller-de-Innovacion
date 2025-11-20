@@ -1,9 +1,43 @@
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // Reemplaza ADMIN_UID_REEMPLAZAR con el UID del administrador autorizado
-      allow read, write:
-          if request.auth != null && request.auth.uid == "ADMIN_UID_REEMPLAZAR";
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnerField() {
+      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function isOwnerResource() {
+      return isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /products/{productId} {
+      allow create: if isOwnerField();
+      allow read, update, delete: if isOwnerResource();
+    }
+
+    match /sales/{saleId} {
+      allow create: if isOwnerField();
+      allow read, update, delete: if isOwnerResource();
+    }
+
+    match /transactions/{transactionId} {
+      allow create: if isOwnerField();
+      allow read, update, delete: if isOwnerResource();
+    }
+
+    match /invoices/{invoiceId} {
+      allow create: if isOwnerField();
+      allow read, update, delete: if isOwnerResource();
+    }
+
+    match /settings/{userId} {
+      allow read, write: if isSignedIn() && userId == request.auth.uid;
+    }
+
+    match /dashboardLayouts/{userId} {
+      allow read, write: if isSignedIn() && userId == request.auth.uid;
     }
   }
 }
