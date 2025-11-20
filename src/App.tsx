@@ -24,6 +24,7 @@ import InventoryPage from "./components/Inventory/InventoryPage";
 import QuickSaleModal from "./components/Sales/QuickSaleModal";
 import FinancePage from "./components/Finance/FinancePage";
 import SettingsPage from "./components/Settings/SettingsPage";
+import ReportsPage from "./components/Reports/ReportsPage";
 import type {
   ActivePage,
   BusinessSettings,
@@ -475,6 +476,15 @@ function App() {
             onAddTransaction={handleAddTransaction}
             errorMessage={financeError}
             defaultTaxRate={settings?.defaultTaxRate}
+            currency={settings?.currency}
+          />
+        )}
+        {activePage === "reportes" && (
+          <ReportsPage
+            products={products}
+            sales={sales}
+            loadingProducts={loadingProducts}
+            loadingSales={loadingSales}
             currency={settings?.currency}
           />
         )}

@@ -3,6 +3,7 @@ export type ActivePage =
   | "dashboard"
   | "inventario"
   | "finanzas"
+  | "reportes"
   | "configuracion";
 
 export type AlertLevel = "estricto" | "normal" | "relajado";
