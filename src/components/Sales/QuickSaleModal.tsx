@@ -66,8 +66,10 @@ const QuickSaleModal = ({
     try {
       await onSubmit({ productId: selectedProduct, quantity, unitPrice });
       onClose();
-    } catch (error: any) {
-      setLocalError(error?.message || "No pudimos registrar la venta");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "No pudimos registrar la venta";
+      setLocalError(message);
     } finally {
       setLoading(false);
     }

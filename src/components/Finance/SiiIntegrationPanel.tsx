@@ -97,9 +97,11 @@ const SiiIntegrationPanel = ({ settings, currency = "CLP", sales }: SiiIntegrati
       );
       setStatusResult(null);
       setDocForm(initialDocForm);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error enviando documento electrónico", err);
-      setError(err?.message || "No pudimos enviar el documento al SII");
+      const message =
+        err instanceof Error ? err.message : "No pudimos enviar el documento al SII";
+      setError(message);
     } finally {
       setSending(false);
     }
@@ -123,9 +125,11 @@ const SiiIntegrationPanel = ({ settings, currency = "CLP", sales }: SiiIntegrati
       const status = await checkElectronicDocumentStatus(trackId, settings);
       setStatusResult(status);
       setFeedback("Estado actualizado desde SII");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error consultando estado SII", err);
-      setError(err?.message || "No pudimos consultar el estado en SII");
+      const message =
+        err instanceof Error ? err.message : "No pudimos consultar el estado en SII";
+      setError(message);
     } finally {
       setChecking(false);
     }

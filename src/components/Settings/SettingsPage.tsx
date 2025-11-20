@@ -231,9 +231,11 @@ const SettingsPage = ({
     try {
       await onUpdateUserRole(userId, payload.role, payload.permissions);
       setRoleMessage("Permisos actualizados correctamente");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error guardando roles", error);
-      setRoleErrorMessage(error?.message || "No pudimos actualizar los permisos");
+      const message =
+        error instanceof Error ? error.message : "No pudimos actualizar los permisos";
+      setRoleErrorMessage(message);
     } finally {
       setRoleSavingId(null);
       setTimeout(() => setRoleMessage(null), 4000);

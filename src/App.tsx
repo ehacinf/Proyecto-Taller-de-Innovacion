@@ -57,6 +57,105 @@ import {
   ROLE_DEFINITIONS,
 } from "./utils/permissions";
 
+type FirestoreUserData = {
+  nombre?: string;
+  negocio?: string;
+  tamano?: string;
+  email?: string;
+};
+
+type FirestoreRoleData = {
+  role?: RoleKey;
+  permissions?: Partial<PermissionSet>;
+  assignedBy?: string;
+  updatedAt?: Timestamp | Date | string | number | null;
+};
+
+type FirestoreProductData = {
+  name?: string;
+  nombre?: string;
+  category?: string;
+  categoria?: string;
+  stock?: number | string;
+  stockMin?: number | string;
+  stock_min?: number | string;
+  unit?: string;
+  unidad?: string;
+  purchasePrice?: number | string;
+  costo?: number | string;
+  salePrice?: number | string;
+  precioVenta?: number | string;
+  supplier?: string;
+  proveedor?: string;
+  createdAt?: Timestamp | Date | string | number | null;
+  userId?: string;
+};
+
+type FirestoreSaleData = {
+  productId?: string;
+  productName?: string;
+  quantity?: number | string;
+  unitPrice?: number | string;
+  salePrice?: number | string;
+  total?: number | string;
+  date?: Timestamp | Date | string | number | null;
+};
+
+type FirestoreTransactionData = {
+  type?: string;
+  amount?: number | string;
+  description?: string;
+  category?: string;
+  date?: Timestamp | Date | string | number | null;
+};
+
+type RawDashboardLayoutItem = Partial<{
+  metric: DashboardMetric | string;
+  view: DashboardViewType | string;
+  width: number;
+  id: string;
+  title?: string;
+}>;
+
+type RawSettingsDoc = Partial<{
+  businessName: string;
+  businessType: string;
+  taxId: string;
+  address: string;
+  city: string;
+  country: string;
+  phone: string;
+  contactEmail: string;
+  defaultStockMin: number | string;
+  defaultUnit: string;
+  categories: unknown[];
+  defaultTaxRate: number | string;
+  currency: string;
+  allowNegativeStock: boolean;
+  allowCustomPriceOnSale: boolean;
+  alertStockEnabled: boolean;
+  alertLevel: string;
+  alertEmail: string;
+  whatsappEnabled: boolean;
+  whatsappNumber: string;
+  whatsappFrom: string;
+  whatsappProvider: string;
+  whatsappDailySummaryEnabled: boolean;
+  whatsappDailySummaryTime: string;
+  siiEnabled: boolean;
+  siiEnvironment: string;
+  siiApiUrl: string;
+  siiApiKey: string;
+  siiResolutionNumber: string;
+  siiOffice: string;
+  uiTheme: string;
+  uiFontSize: string;
+  planName: string;
+  createdAt: Timestamp | Date | string | number | null;
+  updatedAt: Timestamp | Date | string | number | null;
+  userId: string;
+}>;
+
 function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -185,7 +284,7 @@ function MainApp({ user }: { user: User }) {
 
     const unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
       const profiles: UserProfile[] = snapshot.docs.map((docSnapshot) => {
-        const data = docSnapshot.data() as Record<string, any>;
+        const data = docSnapshot.data() as FirestoreUserData;
         return {
           id: docSnapshot.id,
           nombre: data.nombre,
@@ -204,7 +303,7 @@ function MainApp({ user }: { user: User }) {
 
     const unsubscribeRoles = onSnapshot(rolesRef, (snapshot) => {
       const assignments: UserRoleAssignment[] = snapshot.docs.map((docSnapshot) => {
-        const data = docSnapshot.data() as Record<string, any>;
+        const data = docSnapshot.data() as FirestoreRoleData;
         const roleKey = (data.role as RoleKey) || "admin";
         const mergedPermissions = mergePermissions(roleKey, data.permissions);
         return {
@@ -258,7 +357,7 @@ function MainApp({ user }: { user: User }) {
       q,
       (snapshot) => {
         const nextProducts: Product[] = snapshot.docs.map((docSnapshot) => {
-          const raw = docSnapshot.data() as Record<string, any>;
+          const raw = docSnapshot.data() as FirestoreProductData;
           const createdAt = raw.createdAt
             ? raw.createdAt instanceof Timestamp
               ? raw.createdAt.toDate()
@@ -336,7 +435,7 @@ function MainApp({ user }: { user: User }) {
       (snapshot) => {
         const nextSales: Sale[] = snapshot.docs
           .map((docSnapshot) => {
-            const raw = docSnapshot.data() as Record<string, any>;
+            const raw = docSnapshot.data() as FirestoreSaleData;
             const dateValue = raw.date
               ? raw.date instanceof Timestamp
                 ? raw.date.toDate()
@@ -440,7 +539,7 @@ function MainApp({ user }: { user: User }) {
       (snapshot) => {
         const nextTransactions: Transaction[] = snapshot.docs
           .map((docSnapshot) => {
-            const raw = docSnapshot.data() as Record<string, any>;
+            const raw = docSnapshot.data() as FirestoreTransactionData;
             const dateValue = raw.date
               ? raw.date instanceof Timestamp
                 ? raw.date.toDate()
@@ -1029,8 +1128,10 @@ function MainApp({ user }: { user: User }) {
           try {
             await handleQuickSale(values);
             setQuickSaleOpen(false);
-          } catch (error: any) {
-            setSaleError(error?.message || "No pudimos registrar la venta");
+          } catch (error: unknown) {
+            const message =
+              error instanceof Error ? error.message : "No pudimos registrar la venta";
+            setSaleError(message);
             throw error;
           }
         }}
@@ -1056,7 +1157,7 @@ function normalizeLayout(rawLayouts: unknown[]): DashboardWidgetConfig[] {
   return rawLayouts
     .map((item) => {
       if (!item || typeof item !== "object") return null;
-      const data = item as Record<string, any>;
+      const data = item as RawDashboardLayoutItem;
       const metric = allowedMetrics.includes(data.metric) ? data.metric : null;
       if (!metric) return null;
       const view: DashboardViewType =
@@ -1122,7 +1223,7 @@ function buildDefaultSettingsDoc(email: string, userId: string) {
 }
 
 function normalizeSettings(
-  data: Record<string, any> | undefined,
+  data: RawSettingsDoc | undefined,
   fallbackEmail: string
 ): BusinessSettings {
   const createdAtValue = data?.createdAt

@@ -135,9 +135,11 @@ const FinancePage = ({
         settings.businessName || "SimpliGest"
       );
       setSummaryFeedback("Resumen de ventas enviado por WhatsApp.");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error enviando resumen diario", error);
-      setSummaryError(error?.message || "No pudimos enviar el resumen");
+      const message =
+        error instanceof Error ? error.message : "No pudimos enviar el resumen";
+      setSummaryError(message);
     } finally {
       setSummarySending(false);
       setTimeout(() => setSummaryFeedback(null), 4000);
