@@ -1,5 +1,20 @@
-import React, { useMemo } from "react";
-import type { Product, ProductInsight, Sale } from "../../types";
+import React, { useMemo, useState } from "react";
+import type {
+  DashboardMetric,
+  DashboardViewType,
+  DashboardWidgetConfig,
+  Product,
+  ProductInsight,
+  Sale,
+} from "../../types";
+import {
+  buildLowStock,
+  buildSalesByCategory,
+  buildTopProducts,
+  buildWeeklySalesSeries,
+  formatCurrency,
+  getDefaultDashboardLayout,
+} from "../../utils/dashboard";
 
 type DashboardProps = {
   products: Product[];
@@ -8,6 +23,12 @@ type DashboardProps = {
   loadingProducts: boolean;
   loadingSales: boolean;
   insights: ProductInsight[];
+  layout: DashboardWidgetConfig[];
+  onLayoutChange: (layout: DashboardWidgetConfig[]) => void;
+  onSaveLayout: () => void;
+  savingLayout: boolean;
+  layoutLoading?: boolean;
+  layoutFeedback?: string | null;
 };
 
 const Dashboard = ({
@@ -17,7 +38,17 @@ const Dashboard = ({
   loadingProducts,
   loadingSales,
   insights,
+  layout,
+  onLayoutChange,
+  onSaveLayout,
+  savingLayout,
+  layoutLoading,
+  layoutFeedback,
 }: DashboardProps) => {
+  const [newMetric, setNewMetric] = useState<DashboardMetric>("weeklySales");
+  const [newView, setNewView] = useState<DashboardViewType>("chart");
+  const [newWidth, setNewWidth] = useState<DashboardWidgetConfig["width"]>(2);
+
   const totalInventoryValue = useMemo(
     () =>
       products.reduce(
@@ -51,25 +82,7 @@ const Dashboard = ({
     [sales, thirtyDaysAgo]
   );
 
-  const chartData = useMemo(() => {
-    const days = 7;
-    const data: { label: string; value: number }[] = [];
-    const today = new Date();
-
-    for (let i = days - 1; i >= 0; i -= 1) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const label = date.toLocaleDateString("es-CL", { weekday: "short" });
-      const total = sales
-        .filter((sale) => sale.date.toDateString() === date.toDateString())
-        .reduce((acc, sale) => acc + sale.total, 0);
-
-      data.push({ label, value: total });
-    }
-
-    return data;
-  }, [sales]);
-
+  const chartData = useMemo(() => buildWeeklySalesSeries(sales), [sales]);
   const chartMax = Math.max(...chartData.map((item) => item.value), 1);
 
   const topPredictions = useMemo(
@@ -98,6 +111,192 @@ const Dashboard = ({
     [insights]
   );
 
+  const criticalProducts = useMemo(() => buildLowStock(products), [products]);
+  const topSellingProducts = useMemo(() => buildTopProducts(sales), [sales]);
+  const categorySales = useMemo(() => buildSalesByCategory(products, sales), [products, sales]);
+
+  const widgets = layout.length ? layout : getDefaultDashboardLayout();
+
+  const handleAddWidget = () => {
+    const widget: DashboardWidgetConfig = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `widget-${Date.now()}`,
+      metric: newMetric,
+      view: newView,
+      width: newWidth,
+      title: metricOptions.find((item) => item.value === newMetric)?.label,
+    };
+
+    onLayoutChange([...widgets, widget]);
+  };
+
+  const handleRemoveWidget = (id: string) => {
+    onLayoutChange(widgets.filter((item) => item.id !== id));
+  };
+
+  const handleMove = (id: string, direction: "up" | "down") => {
+    const currentIndex = widgets.findIndex((item) => item.id === id);
+    if (currentIndex === -1) return;
+    const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= widgets.length) return;
+
+    const next = [...widgets];
+    const [removed] = next.splice(currentIndex, 1);
+    next.splice(newIndex, 0, removed);
+    onLayoutChange(next);
+  };
+
+  const handleUpdateWidget = (
+    id: string,
+    changes: Partial<Pick<DashboardWidgetConfig, "metric" | "view" | "width" | "title">>
+  ) => {
+    onLayoutChange(
+      widgets.map((widget) =>
+        widget.id === id
+          ? {
+              ...widget,
+              ...changes,
+              title:
+                changes.title ||
+                changes.metric
+                  ? metricOptions.find((item) => item.value === (changes.metric ?? widget.metric))?.label
+                  : widget.title,
+            }
+          : widget
+      )
+    );
+  };
+
+  const renderWidgetContent = (widget: DashboardWidgetConfig) => {
+    if (widget.metric === "inventoryValue") {
+      return (
+        <NumberWidget
+          title={widget.title || "Valor del inventario"}
+          description="Precio de venta multiplicado por el stock disponible."
+          loading={loadingProducts}
+          value={formatCurrency(totalInventoryValue)}
+        />
+      );
+    }
+
+    if (widget.metric === "weeklySales") {
+      if (widget.view === "chart") {
+        return (
+          <ChartWidget
+            title={widget.title || "Ventas por día"}
+            description="Total facturado durante los últimos 7 días."
+            data={chartData}
+            chartMax={chartMax}
+            loading={loadingSales}
+          />
+        );
+      }
+
+      return (
+        <NumberWidget
+          title={widget.title || "Ventas de la semana"}
+          description="Ingresos de los últimos 7 días."
+          loading={loadingSales}
+          value={formatCurrency(chartData.reduce((acc, item) => acc + item.value, 0))}
+        />
+      );
+    }
+
+    if (widget.metric === "latestSales") {
+      return (
+        <TableWidget
+          title={widget.title || "Ventas recientes"}
+          description="Últimos movimientos registrados."
+          loading={loadingSales}
+          emptyLabel="Aún no registras ventas. Usa “+ Venta rápida” para comenzar."
+          headers={["Producto", "Cantidad", "Total", "Fecha"]}
+          rows={latestSales.map((sale) => [
+            sale.productName,
+            sale.quantity,
+            formatCurrency(sale.total),
+            sale.date.toLocaleDateString("es-CL", {
+              day: "2-digit",
+              month: "short",
+            }),
+          ])}
+        />
+      );
+    }
+
+    if (widget.metric === "criticalStock") {
+      return (
+        <TableWidget
+          title={widget.title || "Stock crítico"}
+          description="Productos en riesgo de quiebre."
+          loading={loadingProducts}
+          emptyLabel="No hay productos en nivel crítico."
+          headers={["Producto", "Stock", "Mínimo"]}
+          rows={criticalProducts.map((product) => [product.name, product.stock, product.stockMin])}
+        />
+      );
+    }
+
+    if (widget.metric === "topProducts") {
+      if (widget.view === "chart") {
+        return (
+          <ChartWidget
+            title={widget.title || "Productos con más ventas"}
+            description="Ranking de los últimos movimientos."
+            data={topSellingProducts.map((product) => ({
+              label: product.name,
+              value: product.total,
+            }))}
+            chartMax={Math.max(...topSellingProducts.map((item) => item.total), 1)}
+            loading={loadingSales}
+            dense
+          />
+        );
+      }
+
+      return (
+        <TableWidget
+          title={widget.title || "Productos con más ventas"}
+          description="Ranking por monto vendido."
+          loading={loadingSales}
+          emptyLabel="Aún no hay ventas registradas."
+          headers={["Producto", "Cantidad", "Total"]}
+          rows={topSellingProducts.map((product) => [
+            product.name,
+            product.quantity,
+            formatCurrency(product.total),
+          ])}
+        />
+      );
+    }
+
+    if (widget.metric === "categorySales") {
+      if (widget.view === "chart") {
+        return (
+          <ChartWidget
+            title={widget.title || "Ventas por categoría"}
+            description="Distribución de ingresos por familia de productos."
+            data={categorySales.map((item) => ({ label: item.category, value: item.total }))}
+            chartMax={Math.max(...categorySales.map((item) => item.total), 1)}
+            loading={loadingSales}
+            dense
+          />
+        );
+      }
+
+      return (
+        <TableWidget
+          title={widget.title || "Ventas por categoría"}
+          description="Detalle de ventas agrupadas."
+          loading={loadingSales}
+          emptyLabel="No hay ventas para las categorías registradas."
+          headers={["Categoría", "Total"]}
+          rows={categorySales.map((item) => [item.category, formatCurrency(item.total)])}
+        />
+      );
+    }
+
+    return null;
+  };
+
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -123,6 +322,170 @@ const Dashboard = ({
           subtitle="Productos en nivel crítico"
         />
       </section>
+
+      <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+        <div className="flex flex-wrap items-center gap-3 justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-primaryLight">Personaliza tu panel</p>
+            <h3 className="text-lg font-semibold text-primary">Elige qué tarjetas quieres ver</h3>
+            <p className="text-xs text-gray-500">
+              Arrastra el orden con los botones, cambia su tamaño y guarda tu distribución favorita.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-end">
+            <div>
+              <label className="text-[11px] text-gray-500 block">Métrica</label>
+              <select
+                className="text-sm border rounded-lg px-3 py-2 bg-white"
+                value={newMetric}
+                onChange={(event) => setNewMetric(event.target.value as DashboardMetric)}
+              >
+                {metricOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-500 block">Visualización</label>
+              <select
+                className="text-sm border rounded-lg px-3 py-2 bg-white"
+                value={newView}
+                onChange={(event) => setNewView(event.target.value as DashboardViewType)}
+              >
+                <option value="chart">Gráfico</option>
+                <option value="number">Número</option>
+                <option value="table">Tabla</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-gray-500 block">Tamaño</label>
+              <select
+                className="text-sm border rounded-lg px-3 py-2 bg-white"
+                value={newWidth}
+                onChange={(event) =>
+                  setNewWidth(Number(event.target.value) as DashboardWidgetConfig["width"])
+                }
+              >
+                <option value={1}>1 columna</option>
+                <option value={2}>2 columnas</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddWidget}
+              className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition"
+            >
+              + Agregar tarjeta
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-gray-500">
+            Reordena con las flechas, ajusta tamaños y elimina lo que no necesites.
+          </p>
+          <div className="flex items-center gap-2">
+            {layoutFeedback && <p className="text-xs text-primary">{layoutFeedback}</p>}
+            <button
+              type="button"
+              disabled={savingLayout || layoutLoading}
+              onClick={onSaveLayout}
+              className="text-sm bg-primary text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition disabled:opacity-60"
+            >
+              {savingLayout ? "Guardando..." : "Guardar diseño"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {layoutLoading ? (
+        <p className="text-xs text-gray-500">Cargando tu panel...</p>
+      ) : (
+        <section className="grid grid-cols-1 md:grid-cols-12 gap-4 auto-rows-min">
+          {widgets.map((widget) => (
+            <article
+              key={widget.id}
+              className={`bg-white rounded-2xl shadow-sm p-4 ${
+                widget.width === 2 ? "md:col-span-8" : "md:col-span-4"
+              }`}
+            >
+              <header className="flex items-start justify-between gap-2 mb-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-primaryLight">Tarjeta</p>
+                  <h4 className="text-lg font-semibold text-primary">{widget.title || "Tarjeta"}</h4>
+                </div>
+
+                <div className="flex flex-wrap gap-1">
+                  <IconButton label="Mover arriba" onClick={() => handleMove(widget.id, "up")}>↑</IconButton>
+                  <IconButton label="Mover abajo" onClick={() => handleMove(widget.id, "down")}>↓</IconButton>
+                  <IconButton label="Eliminar" onClick={() => handleRemoveWidget(widget.id)}>✕</IconButton>
+                </div>
+              </header>
+
+              <div className="flex flex-wrap gap-2 mb-3 text-xs">
+                <label className="flex items-center gap-1">
+                  <span className="text-gray-500">Métrica</span>
+                  <select
+                    className="border rounded-lg px-2 py-1"
+                    value={widget.metric}
+                    onChange={(event) =>
+                      handleUpdateWidget(widget.id, {
+                        metric: event.target.value as DashboardMetric,
+                        title: metricOptions.find((item) => item.value === event.target.value)?.label,
+                      })
+                    }
+                  >
+                    {metricOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1">
+                  <span className="text-gray-500">Vista</span>
+                  <select
+                    className="border rounded-lg px-2 py-1"
+                    value={widget.view}
+                    onChange={(event) =>
+                      handleUpdateWidget(widget.id, { view: event.target.value as DashboardViewType })
+                    }
+                  >
+                    <option value="chart">Gráfico</option>
+                    <option value="number">Número</option>
+                    <option value="table">Tabla</option>
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1">
+                  <span className="text-gray-500">Tamaño</span>
+                  <select
+                    className="border rounded-lg px-2 py-1"
+                    value={widget.width}
+                    onChange={(event) =>
+                      handleUpdateWidget(widget.id, {
+                        width: Number(event.target.value) as DashboardWidgetConfig["width"],
+                      })
+                    }
+                  >
+                    <option value={1}>1 columna</option>
+                    <option value={2}>2 columnas</option>
+                  </select>
+                </label>
+              </div>
+
+              {renderWidgetContent(widget)}
+            </article>
+          ))}
+        </section>
+      )}
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <InsightCard
@@ -173,74 +536,6 @@ const Dashboard = ({
             />
           ))}
         </InsightCard>
-      </section>
-
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold text-primary">Ventas recientes</h3>
-              <p className="text-xs text-gray-500">
-                Últimos movimientos registrados en tu punto de venta.
-              </p>
-            </div>
-          </div>
-
-          {loadingSales ? (
-            <p className="text-xs text-gray-500">Cargando ventas...</p>
-          ) : latestSales.length === 0 ? (
-            <p className="text-xs text-gray-500">
-              Aún no registras ventas. Usa “+ Venta rápida” para comenzar.
-            </p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-gray-500 border-b">
-                  <th className="py-2">Producto</th>
-                  <th className="py-2">Cantidad</th>
-                  <th className="py-2">Total</th>
-                  <th className="py-2">Fecha</th>
-                </tr>
-              </thead>
-              <tbody className="text-gray-700">
-                {latestSales.map((sale) => (
-                  <tr key={sale.id} className="border-b last:border-none">
-                    <td className="py-2">{sale.productName}</td>
-                    <td className="py-2">{sale.quantity}</td>
-                    <td className="py-2">{formatCurrency(sale.total)}</td>
-                    <td className="py-2">
-                      {sale.date.toLocaleDateString("es-CL", {
-                        day: "2-digit",
-                        month: "short",
-                      })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm p-4">
-          <h3 className="font-semibold text-primary">Ventas por día</h3>
-          <p className="text-xs text-gray-500 mb-3">
-            Total facturado durante los últimos 7 días.
-          </p>
-          <div className="flex items-end gap-2 h-40">
-            {chartData.map((item) => (
-              <div key={item.label} className="flex-1 flex flex-col items-center gap-1">
-                <div className="w-full bg-primary/10 rounded-full overflow-hidden h-full flex items-end">
-                  <div
-                    className="w-full bg-primary rounded-full transition-all"
-                    style={{ height: `${(item.value / chartMax) * 100}%` }}
-                  />
-                </div>
-                <p className="text-[11px] uppercase text-gray-500">{item.label}</p>
-                <p className="text-[11px] text-gray-600">{formatCurrency(item.value)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
     </div>
   );
@@ -320,10 +615,138 @@ function formatDemandHelper(item: ProductInsight) {
   return `${demandText}; proyectado ${item.stockoutInDays} días de stock.`;
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("es-CL", {
-    style: "currency",
-    currency: "CLP",
-    maximumFractionDigits: 0,
-  }).format(value);
+function NumberWidget({
+  title,
+  description,
+  loading,
+  value,
+}: {
+  title: string;
+  description: string;
+  loading: boolean;
+  value: string;
+}) {
+  return (
+    <div>
+      <h4 className="text-lg font-semibold text-primary">{title}</h4>
+      <p className="text-xs text-gray-500 mb-1">{description}</p>
+      <p className="text-3xl font-bold text-primary">{loading ? "…" : value}</p>
+    </div>
+  );
 }
+
+function ChartWidget({
+  title,
+  description,
+  data,
+  chartMax,
+  loading,
+  dense,
+}: {
+  title: string;
+  description: string;
+  data: { label: string; value: number }[];
+  chartMax: number;
+  loading: boolean;
+  dense?: boolean;
+}) {
+  return (
+    <div>
+      <h4 className="text-lg font-semibold text-primary">{title}</h4>
+      <p className="text-xs text-gray-500 mb-3">{description}</p>
+      {loading ? (
+        <p className="text-xs text-gray-500">Cargando...</p>
+      ) : (
+        <div className={`flex items-end gap-2 ${dense ? "h-48" : "h-40"}`}>
+          {data.map((item) => (
+            <div key={item.label} className="flex-1 flex flex-col items-center gap-1">
+              <div className="w-full bg-primary/10 rounded-full overflow-hidden h-full flex items-end">
+                <div
+                  className="w-full bg-primary rounded-full transition-all"
+                  style={{ height: `${(item.value / chartMax) * 100}%` }}
+                />
+              </div>
+              <p className="text-[11px] uppercase text-gray-500 truncate w-full text-center">{item.label}</p>
+              <p className="text-[11px] text-gray-600">{formatCurrency(item.value)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TableWidget({
+  title,
+  description,
+  headers,
+  rows,
+  loading,
+  emptyLabel,
+}: {
+  title: string;
+  description: string;
+  headers: (string | number)[];
+  rows: (string | number)[][];
+  loading: boolean;
+  emptyLabel: string;
+}) {
+  return (
+    <div>
+      <h4 className="text-lg font-semibold text-primary">{title}</h4>
+      <p className="text-xs text-gray-500 mb-3">{description}</p>
+      {loading ? (
+        <p className="text-xs text-gray-500">Cargando...</p>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-gray-500">{emptyLabel}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 border-b">
+                {headers.map((header) => (
+                  <th key={header} className="py-2 pr-2 whitespace-nowrap">
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="text-gray-700">
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="border-b last:border-none">
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${rowIndex}-${cellIndex}`} className="py-2 pr-2 whitespace-nowrap">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-softGray"
+      onClick={onClick}
+      aria-label={label}
+    >
+      {children}
+    </button>
+  );
+}
+
+const metricOptions: { value: DashboardMetric; label: string }[] = [
+  { value: "weeklySales", label: "Ventas de la semana" },
+  { value: "inventoryValue", label: "Valor del inventario" },
+  { value: "criticalStock", label: "Stock crítico" },
+  { value: "topProducts", label: "Productos más vendidos" },
+  { value: "categorySales", label: "Ventas por categoría" },
+  { value: "latestSales", label: "Últimas ventas" },
+];
