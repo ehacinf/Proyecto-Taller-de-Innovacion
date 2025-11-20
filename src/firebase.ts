@@ -1,7 +1,11 @@
 // src/firebase.ts
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyCtWOjZbNePeZHb_Ih_nRfpdKb6N5Il86c",
@@ -17,5 +21,12 @@ export const firebaseApp = initializeApp(firebaseConfig);
 
 // Exportar servicios que usa la app
 export const auth = getAuth(firebaseApp);
-export const db = getFirestore(firebaseApp);
+export const db = initializeFirestore(firebaseApp, {
+  // Habilita caché y long-polling automático para evitar fallas de red
+  experimentalAutoDetectLongPolling: true,
+  ignoreUndefinedProperties: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
 
