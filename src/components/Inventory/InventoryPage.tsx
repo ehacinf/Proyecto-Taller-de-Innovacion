@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Product, ProductPayload } from "../../types";
+import type { Product, ProductInsight, ProductPayload } from "../../types";
 
 type InventoryPageProps = {
   products: Product[];
@@ -12,6 +12,7 @@ type InventoryPageProps = {
   defaultStockMin?: number;
   defaultUnit?: string;
   currency?: string;
+  productInsights: ProductInsight[];
 };
 
 type SortField = "name" | "salePrice" | "stock";
@@ -51,6 +52,7 @@ const InventoryPage = ({
   defaultStockMin = 0,
   defaultUnit = "unidades",
   currency = "CLP",
+  productInsights,
 }: InventoryPageProps) => {
   const [formValues, setFormValues] = useState<FormState>(() =>
     createInitialFormState(defaultStockMin, defaultUnit)
@@ -63,6 +65,7 @@ const InventoryPage = ({
   const [submitting, setSubmitting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [detailProductId, setDetailProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!editingId) {
@@ -107,6 +110,29 @@ const InventoryPage = ({
 
     return sorted;
   }, [products, combinedSearch, categoryFilter, sortField, sortDirection]);
+
+  useEffect(() => {
+    if (filteredProducts.length === 0) {
+      setDetailProductId(null);
+      return;
+    }
+
+    const exists = filteredProducts.some((product) => product.id === detailProductId);
+    if (!exists) {
+      setDetailProductId(filteredProducts[0].id);
+    }
+  }, [filteredProducts, detailProductId]);
+
+  const selectedProduct = useMemo(
+    () => filteredProducts.find((product) => product.id === detailProductId) || null,
+    [filteredProducts, detailProductId]
+  );
+
+  const selectedInsight = useMemo(
+    () =>
+      productInsights.find((insight) => insight.productId === selectedProduct?.id) || null,
+    [productInsights, selectedProduct?.id]
+  );
 
   function handleChange(
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -335,11 +361,11 @@ const InventoryPage = ({
               {loading ? "Cargando productos…" : `${filteredProducts.length} productos visibles`}
             </p>
           </div>
-          <div className="flex flex-col md:flex-row gap-2 text-xs">
-            <input
-              type="text"
-              placeholder="Buscar por nombre o categoría"
-              className="px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
+        <div className="flex flex-col md:flex-row gap-2 text-xs">
+          <input
+            type="text"
+            placeholder="Buscar por nombre o categoría"
+            className="px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
               value={localSearch}
               onChange={(event) => setLocalSearch(event.target.value)}
             />
@@ -378,6 +404,74 @@ const InventoryPage = ({
             </button>
           </div>
         </div>
+
+        {selectedProduct && (
+          <div className="bg-softGray rounded-2xl p-3 text-xs space-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.25em] text-primaryLight">
+                  Ficha inteligente
+                </p>
+                <h4 className="text-sm font-semibold text-primary">{selectedProduct.name}</h4>
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="detail-select" className="text-[11px] text-gray-600">
+                  Ver detalles de
+                </label>
+                <select
+                  id="detail-select"
+                  value={detailProductId ?? ""}
+                  onChange={(event) => setDetailProductId(event.target.value)}
+                  className="px-3 py-2 rounded-xl border border-gray-200 bg-white"
+                >
+                  {filteredProducts.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {selectedInsight ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <InsightPill
+                  title="Predicción de demanda"
+                  value={`≈${selectedInsight.predictedWeeklyDemand.toFixed(1)} uds/sem`}
+                  helper={`Tendencia ${selectedInsight.demandLevel}`}
+                />
+                <InsightPill
+                  title="Quiebre estimado"
+                  value={
+                    selectedInsight.stockoutInDays
+                      ? `${selectedInsight.stockoutInDays} días`
+                      : "Sin riesgo inmediato"
+                  }
+                  helper="Calculado con velocidad de venta"
+                />
+                <InsightPill
+                  title="Sugerencia de compra"
+                  value={
+                    selectedInsight.purchaseSuggestion > 0
+                      ? `Pedir ${selectedInsight.purchaseSuggestion} uds`
+                      : "Inventario suficiente"
+                  }
+                  helper="Cobertura recomendada de 14 días"
+                />
+                <InsightPill
+                  title="Precio recomendado"
+                  value={formatCurrency(selectedInsight.priceRecommendation.recommendedPrice, currency)}
+                  helper={formatPriceHelper(selectedInsight)}
+                />
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-600">
+                Aún no hay ventas suficientes para este producto. El sistema mostrará predicciones
+                en cuanto registre algunos movimientos.
+              </p>
+            )}
+          </div>
+        )}
 
         {errorMessage && <p className="text-xs text-red-500">{errorMessage}</p>}
 
@@ -462,6 +556,28 @@ const InventoryPage = ({
 };
 
 export default InventoryPage;
+
+type InsightPillProps = {
+  title: string;
+  value: string;
+  helper?: string;
+};
+
+function InsightPill({ title, value, helper }: InsightPillProps) {
+  return (
+    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-primaryLight">{title}</p>
+      <p className="text-sm font-semibold text-primary">{value}</p>
+      {helper && <p className="text-[11px] text-gray-500">{helper}</p>}
+    </div>
+  );
+}
+
+function formatPriceHelper(insight: ProductInsight) {
+  const variation = insight.priceRecommendation.variationPercentage;
+  const prefix = variation >= 0 ? "+" : "";
+  return `${prefix}${variation.toFixed(1)}% vs. precio actual · ${insight.priceRecommendation.rationale}`;
+}
 
 function formatCurrency(value: number, currency = "CLP") {
   return new Intl.NumberFormat("es-CL", {
