@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import type { BusinessSettings } from "../../types";
+import type {
+  BusinessSettings,
+  PermissionKey,
+  PermissionSet,
+  RoleDefinition,
+  RoleKey,
+  UserProfile,
+  UserRoleAssignment,
+} from "../../types";
+import { PERMISSION_LABELS, mergePermissions } from "../../utils/permissions";
 
 export type SettingsPageProps = {
   settings: BusinessSettings | null;
@@ -11,6 +20,20 @@ export type SettingsPageProps = {
   onSave: (payload: Partial<BusinessSettings>) => Promise<void>;
   userEmail: string;
   onSignOut: () => void;
+  roleDefinitions: RoleDefinition[];
+  userRoleAssignments: UserRoleAssignment[];
+  userProfiles: UserProfile[];
+  onUpdateUserRole: (
+    userId: string,
+    role: RoleKey,
+    permissions: PermissionSet
+  ) => Promise<void>;
+  canManageUsers: boolean;
+  currentUserId: string;
+  currentRole: RoleKey;
+  currentPermissions: PermissionSet;
+  rolesError?: string | null;
+  rolesLoading: boolean;
 };
 
 type FormState = {
@@ -100,13 +123,48 @@ const SettingsPage = ({
   onSave,
   userEmail,
   onSignOut,
+  roleDefinitions,
+  userRoleAssignments,
+  userProfiles,
+  onUpdateUserRole,
+  canManageUsers,
+  currentUserId,
+  currentRole,
+  currentPermissions,
+  rolesError,
+  rolesLoading,
 }: SettingsPageProps) => {
   const [formState, setFormState] = useState<FormState>(() => buildFormState(settings, userEmail));
   const [newCategory, setNewCategory] = useState("");
+  const [roleState, setRoleState] = useState<Record<string, { role: RoleKey; permissions: PermissionSet }>>({});
+  const [roleSavingId, setRoleSavingId] = useState<string | null>(null);
+  const [roleMessage, setRoleMessage] = useState<string | null>(null);
+  const [roleErrorMessage, setRoleErrorMessage] = useState<string | null>(null);
+
+  const assignmentsByUser = useMemo(() => {
+    const map = new Map<string, UserRoleAssignment>();
+    userRoleAssignments.forEach((assignment) => {
+      map.set(assignment.userId, assignment);
+    });
+    return map;
+  }, [userRoleAssignments]);
 
   useEffect(() => {
     setFormState(buildFormState(settings, userEmail));
   }, [settings, userEmail]);
+
+  useEffect(() => {
+    const nextRoles: Record<string, { role: RoleKey; permissions: PermissionSet }> = {};
+
+    userProfiles.forEach((profile) => {
+      const assignment = assignmentsByUser.get(profile.id);
+      const roleKey = assignment?.role || (profile.id === currentUserId ? currentRole : "vendedor");
+      const permissions = mergePermissions(roleKey, assignment?.permissions);
+      nextRoles[profile.id] = { role: roleKey, permissions };
+    });
+
+    setRoleState(nextRoles);
+  }, [assignmentsByUser, userProfiles, currentRole, currentUserId]);
 
   const categoriesPreview = useMemo(() => formState.categories, [formState.categories]);
 
@@ -135,6 +193,51 @@ const SettingsPage = ({
       ...prev,
       categories: prev.categories.filter((item) => item !== category),
     }));
+  }
+
+  function handleRoleSelection(userId: string, role: RoleKey) {
+    setRoleState((prev) => ({
+      ...prev,
+      [userId]: {
+        role,
+        permissions: mergePermissions(role),
+      },
+    }));
+  }
+
+  function handlePermissionToggle(userId: string, permission: PermissionKey) {
+    setRoleState((prev) => {
+      const current = prev[userId] || { role: "personalizado" as RoleKey, permissions: mergePermissions("personalizado") };
+      const nextPermissions: PermissionSet = {
+        ...current.permissions,
+        [permission]: !current.permissions[permission],
+      };
+
+      return {
+        ...prev,
+        [userId]: { role: "personalizado", permissions: nextPermissions },
+      };
+    });
+  }
+
+  async function handleSaveRole(userId: string) {
+    const payload = roleState[userId];
+    if (!payload) return;
+
+    setRoleSavingId(userId);
+    setRoleMessage(null);
+    setRoleErrorMessage(null);
+
+    try {
+      await onUpdateUserRole(userId, payload.role, payload.permissions);
+      setRoleMessage("Permisos actualizados correctamente");
+    } catch (error: any) {
+      console.error("Error guardando roles", error);
+      setRoleErrorMessage(error?.message || "No pudimos actualizar los permisos");
+    } finally {
+      setRoleSavingId(null);
+      setTimeout(() => setRoleMessage(null), 4000);
+    }
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -631,6 +734,135 @@ const SettingsPage = ({
             </ul>
           </div>
         </div>
+      </section>
+
+      <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-primary">Usuarios y roles</p>
+            <h3 className="text-lg font-semibold text-primary">Permisos personalizados</h3>
+            <p className="text-xs text-gray-500">
+              Asigna los perfiles sugeridos (Administrador, Vendedor, Contador o Bodeguero) y ajusta los permisos cuando el negocio lo requiera.
+            </p>
+          </div>
+          <div className="text-right text-[11px] text-gray-500">
+            <p>Rol activo: {roleDefinitions.find((role) => role.key === currentRole)?.name || currentRole}</p>
+            <p>Permisos clave: {currentPermissions.createSales ? "Vende" : "Sin ventas"} · {currentPermissions.editInventory ? "Edita inventario" : "Solo lectura"}</p>
+          </div>
+        </div>
+
+        {rolesError && <p className="text-xs text-red-500">{rolesError}</p>}
+        {roleErrorMessage && <p className="text-xs text-red-500">{roleErrorMessage}</p>}
+        {roleMessage && <p className="text-xs text-green-600">{roleMessage}</p>}
+
+        {rolesLoading ? (
+          <p className="text-xs text-gray-600">Cargando permisos y usuarios...</p>
+        ) : !canManageUsers ? (
+          <p className="text-xs text-gray-600 bg-softGray rounded-xl px-3 py-2">
+            Solo los administradores pueden modificar roles. Solicita acceso a un administrador del negocio.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              {roleDefinitions.map((role) => (
+                <div key={role.key} className="border border-gray-100 rounded-xl p-3 bg-softGray">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-primaryLight">{role.name}</p>
+                  <p className="font-semibold text-primary">{role.description}</p>
+                  <ul className="list-disc list-inside text-gray-600 mt-1 space-y-1">
+                    {Object.entries(role.permissions)
+                      .filter(([, enabled]) => enabled)
+                      .map(([permissionKey]) => (
+                        <li key={permissionKey}>{PERMISSION_LABELS[permissionKey as PermissionKey]}</li>
+                      ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b">
+                    <th className="py-2">Usuario</th>
+                    <th className="py-2">Rol asignado</th>
+                    <th className="py-2">Permisos</th>
+                    <th className="py-2 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-700">
+                  {userProfiles.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-3 text-center text-gray-500">
+                        Aún no hay usuarios registrados.
+                      </td>
+                    </tr>
+                  ) : (
+                    userProfiles.map((profile) => {
+                      const currentRoleState = roleState[profile.id] || {
+                        role: "vendedor" as RoleKey,
+                        permissions: mergePermissions("vendedor"),
+                      };
+                      const isSaving = roleSavingId === profile.id;
+                      const displayName = profile.nombre || profile.email || profile.id;
+                      return (
+                        <tr key={profile.id} className="border-b last:border-none align-top">
+                          <td className="py-3">
+                            <div className="font-semibold text-primary">{displayName}</div>
+                            <p className="text-[11px] text-gray-500">{profile.negocio || "Sin negocio registrado"}</p>
+                            {profile.id === currentUserId && (
+                              <span className="inline-block text-[10px] text-primary bg-primary/10 px-2 py-[2px] rounded-full mt-1">
+                                Tú
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3">
+                            <select
+                              className="px-3 py-2 rounded-xl border border-gray-200"
+                              value={currentRoleState.role}
+                              disabled={isSaving}
+                              onChange={(event) => handleRoleSelection(profile.id, event.target.value as RoleKey)}
+                            >
+                              {roleDefinitions.map((role) => (
+                                <option key={role.key} value={role.key}>
+                                  {role.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="py-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {Object.entries(currentRoleState.permissions).map(([permissionKey, enabled]) => (
+                                <label key={permissionKey} className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={enabled}
+                                    disabled={isSaving}
+                                    onChange={() => handlePermissionToggle(profile.id, permissionKey as PermissionKey)}
+                                  />
+                                  <span>{PERMISSION_LABELS[permissionKey as PermissionKey]}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveRole(profile.id)}
+                              disabled={isSaving}
+                              className="bg-primary text-white px-4 py-2 rounded-xl text-xs hover:opacity-90 disabled:opacity-50"
+                            >
+                              {isSaving ? "Guardando..." : "Actualizar"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">

@@ -10,6 +10,8 @@ type MainLayoutProps = {
   userEmail: string;
   searchTerm: string;
   onSearchTermChange: (value: string) => void;
+  allowedPages?: Set<ActivePage>;
+  canCreateSale?: boolean;
   children: ReactNode;
 };
 
@@ -60,9 +62,15 @@ const MainLayout = ({
   userEmail,
   searchTerm,
   onSearchTermChange,
+  allowedPages,
+  canCreateSale = true,
   children,
 }: MainLayoutProps) => {
   const { title, subtitle } = pageDescriptions[activePage];
+  const pageSet = allowedPages ?? new Set<ActivePage>(["inicio", "dashboard", "inventario", "finanzas", "reportes", "configuracion"]);
+  const filteredMenu = menuItems.filter((item) =>
+    item.page ? pageSet.has(item.page) : true
+  );
 
   return (
     <div className="min-h-screen flex bg-softGray">
@@ -84,7 +92,7 @@ const MainLayout = ({
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-2 text-sm">
-          {menuItems.map((item) => (
+          {filteredMenu.map((item) => (
             <SidebarItem
               key={item.label}
               label={item.label}
@@ -135,7 +143,8 @@ const MainLayout = ({
                 />
                 <button
                   onClick={onOpenQuickSale}
-                  className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition"
+                  disabled={!canCreateSale}
+                  className="text-sm bg-primaryLight text-white px-4 py-2 rounded-xl shadow-sm hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   + Venta rápida
                 </button>

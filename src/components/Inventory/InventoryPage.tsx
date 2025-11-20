@@ -13,6 +13,7 @@ type InventoryPageProps = {
   defaultUnit?: string;
   currency?: string;
   productInsights: ProductInsight[];
+  canEditInventory?: boolean;
 };
 
 type SortField = "name" | "salePrice" | "stock";
@@ -53,6 +54,7 @@ const InventoryPage = ({
   defaultUnit = "unidades",
   currency = "CLP",
   productInsights,
+  canEditInventory = true,
 }: InventoryPageProps) => {
   const [formValues, setFormValues] = useState<FormState>(() =>
     createInitialFormState(defaultStockMin, defaultUnit)
@@ -144,6 +146,10 @@ const InventoryPage = ({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    if (!canEditInventory) {
+      setFormError("No tienes permisos para modificar el inventario");
+      return;
+    }
 
     const trimmedStockMin = formValues.stockMin.trim();
     const parsedStockMin = trimmedStockMin === "" ? NaN : Number(trimmedStockMin);
@@ -189,6 +195,9 @@ const InventoryPage = ({
   }
 
   async function handleDelete(id: string, name: string) {
+    if (!canEditInventory) {
+      return;
+    }
     const confirmDelete = window.confirm(`¿Eliminar ${name}?`);
     if (!confirmDelete) return;
 
@@ -235,6 +244,11 @@ const InventoryPage = ({
           <p className="text-xs text-gray-500">
             Completa los campos requeridos para mantener tu inventario sincronizado.
           </p>
+          {!canEditInventory && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-2">
+              Tu rol actual solo permite visualizar inventario. Contacta a un administrador para habilitar ediciones.
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
@@ -245,7 +259,8 @@ const InventoryPage = ({
               name="name"
               value={formValues.name}
               onChange={handleChange}
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
+              disabled={!canEditInventory}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80 disabled:bg-gray-100"
               placeholder="Ej: Pan de molde"
             />
           </div>
@@ -257,7 +272,8 @@ const InventoryPage = ({
                 name="category"
                 value={formValues.category}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canEditInventory}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 placeholder="Abarrotes"
               />
             </div>
@@ -268,7 +284,8 @@ const InventoryPage = ({
                 name="supplier"
                 value={formValues.supplier}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canEditInventory}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 placeholder="Distribuidora Sur"
               />
             </div>
@@ -281,7 +298,8 @@ const InventoryPage = ({
                 name="stock"
                 value={formValues.stock}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canEditInventory}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 min={0}
               />
             </div>
@@ -292,7 +310,8 @@ const InventoryPage = ({
                 name="stockMin"
                 value={formValues.stockMin}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canEditInventory}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 min={0}
               />
             </div>
@@ -305,7 +324,8 @@ const InventoryPage = ({
                 name="purchasePrice"
                 value={formValues.purchasePrice}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canEditInventory}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 min={0}
               />
             </div>
@@ -316,7 +336,8 @@ const InventoryPage = ({
                 name="salePrice"
                 value={formValues.salePrice}
                 onChange={handleChange}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                disabled={!canEditInventory}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                 min={0}
               />
             </div>
@@ -328,7 +349,7 @@ const InventoryPage = ({
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !canEditInventory}
               className="flex-1 bg-primary text-white py-2 rounded-xl text-sm hover:opacity-90 disabled:opacity-50"
             >
               {editingId ? "Guardar cambios" : "Agregar producto"}
@@ -531,14 +552,16 @@ const InventoryPage = ({
                       </td>
                       <td className="py-2 text-right space-x-2">
                         <button
-                          className="text-primaryLight hover:underline"
+                          className="text-primaryLight hover:underline disabled:text-gray-400"
                           onClick={() => handleEdit(product)}
+                          disabled={!canEditInventory}
                         >
                           Editar
                         </button>
                         <button
-                          className="text-red-500 hover:underline"
+                          className="text-red-500 hover:underline disabled:text-gray-400"
                           onClick={() => handleDelete(product.id, product.name)}
+                          disabled={!canEditInventory}
                         >
                           Eliminar
                         </button>
