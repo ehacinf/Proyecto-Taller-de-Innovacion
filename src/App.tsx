@@ -573,15 +573,13 @@ function MainApp({ user }: { user: User }) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
 
-    const ownerId = payload.userId || user.uid;
-
     try {
       const createdAtValue = payload.createdAt
         ? Timestamp.fromDate(payload.createdAt)
         : serverTimestamp();
       const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
 
-      await addDoc(collection(db, "products"), {
+      const docRef = await addDoc(collection(db, "products"), {
         name: payload.name,
         nombre: payload.name,
         category: payload.category,
@@ -594,8 +592,10 @@ function MainApp({ user }: { user: User }) {
         supplier: payload.supplier,
         proveedor: payload.supplier,
         createdAt: createdAtValue,
-        userId: ownerId,
+        userId: user.uid,
       });
+
+      console.info("Producto guardado en Firestore", { id: docRef.id });
     } catch (error) {
       console.error("Error agregando producto en Firestore", error);
       throw error;
@@ -609,8 +609,6 @@ function MainApp({ user }: { user: User }) {
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
-
-    const ownerId = payload.userId || user.uid;
 
     try {
       const productRef = doc(db, "products", id);
@@ -627,8 +625,10 @@ function MainApp({ user }: { user: User }) {
         salePrice: payload.salePrice,
         supplier: payload.supplier,
         proveedor: payload.supplier,
-        userId: ownerId,
+        userId: user.uid,
       });
+
+      console.info("Producto actualizado en Firestore", { id });
     } catch (error) {
       console.error("Error actualizando producto en Firestore", error);
       throw error;
@@ -677,7 +677,7 @@ function MainApp({ user }: { user: User }) {
     const total = payload.quantity * payload.unitPrice;
 
     try {
-      await addDoc(collection(db, "sales"), {
+      const docRef = await addDoc(collection(db, "sales"), {
         productId: product.id,
         productName: product.name,
         quantity: payload.quantity,
@@ -686,6 +686,8 @@ function MainApp({ user }: { user: User }) {
         date: serverTimestamp(),
         userId: user.uid,
       });
+
+      console.info("Venta guardada en Firestore", { id: docRef.id });
 
       const productRef = doc(db, "products", product.id);
       await updateDoc(productRef, {
@@ -709,7 +711,7 @@ function MainApp({ user }: { user: User }) {
       : serverTimestamp();
 
     try {
-      await addDoc(collection(db, "transactions"), {
+      const docRef = await addDoc(collection(db, "transactions"), {
         type: payload.type,
         amount: payload.amount,
         description: payload.description,
@@ -717,6 +719,8 @@ function MainApp({ user }: { user: User }) {
         date: dateValue,
         userId: user.uid,
       });
+
+      console.info("Movimiento guardado en Firestore", { id: docRef.id });
     } catch (error) {
       console.error("Error guardando movimiento en Firestore", error);
       throw error;
@@ -745,7 +749,7 @@ function MainApp({ user }: { user: User }) {
     });
 
     try {
-      await addDoc(collection(db, "transactions"), {
+      const transactionRef = await addDoc(collection(db, "transactions"), {
         type: "expense",
         amount: invoice.total,
         description: `Factura ${invoice.invoiceNumber} - ${invoice.supplier}`,
@@ -753,6 +757,8 @@ function MainApp({ user }: { user: User }) {
         date: Timestamp.fromDate(issueDate),
         userId: user.uid,
       });
+
+      console.info("Gasto de factura guardado en Firestore", { id: transactionRef.id });
 
       await Promise.all(
         normalizedItems.map(async (item) => {
@@ -771,7 +777,7 @@ function MainApp({ user }: { user: User }) {
               proveedor: invoice.supplier || existing.supplier,
             });
           } else {
-            await addDoc(collection(db, "products"), {
+            const docRef = await addDoc(collection(db, "products"), {
               name: item.description,
               nombre: item.description,
               category: "Compras factura",
@@ -786,11 +792,13 @@ function MainApp({ user }: { user: User }) {
               createdAt: Timestamp.fromDate(issueDate),
               userId: user.uid,
             });
+
+            console.info("Producto creado desde factura", { id: docRef.id });
           }
         })
       );
 
-      await addDoc(collection(db, "invoices"), {
+      const invoiceRef = await addDoc(collection(db, "invoices"), {
         supplier: invoice.supplier,
         invoiceNumber: invoice.invoiceNumber,
         issueDate: Timestamp.fromDate(issueDate),
@@ -805,6 +813,8 @@ function MainApp({ user }: { user: User }) {
         createdAt: serverTimestamp(),
         userId: user.uid,
       });
+
+      console.info("Factura almacenada en Firestore", { id: invoiceRef.id });
     } catch (error) {
       console.error("Error procesando factura en Firestore", error);
       throw error;
@@ -824,6 +834,8 @@ function MainApp({ user }: { user: User }) {
         categories: payload.categories ?? settings?.categories ?? [],
         updatedAt: serverTimestamp(),
       });
+
+      console.info("Configuración actualizada en Firestore", { id: settingsRef.id });
       setSettingsFeedback("Configuración guardada correctamente");
       setTimeout(() => setSettingsFeedback(null), 4000);
     } catch (error) {
