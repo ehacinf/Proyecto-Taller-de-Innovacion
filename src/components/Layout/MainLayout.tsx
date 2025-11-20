@@ -30,6 +30,10 @@ const pageDescriptions: Record<ActivePage, { title: string; subtitle: string }> 
     title: "Finanzas",
     subtitle: "Revisa ingresos, egresos y el saldo disponible en caja.",
   },
+  reportes: {
+    title: "Reportes Automáticos",
+    subtitle: "Genera informes personalizables y exportables en segundos.",
+  },
   configuracion: {
     title: "Configuración",
     subtitle: "Personaliza tu negocio y preferencias del sistema.",
@@ -43,7 +47,7 @@ const menuItems: { label: string; page?: ActivePage }[] = [
   { label: "Finanzas", page: "finanzas" },
   { label: "Ventas (POS)" },
   { label: "Panel de IA" },
-  { label: "Reportes" },
+  { label: "Reportes automáticos", page: "reportes" },
   { label: "Usuarios & Roles" },
   { label: "Configuración", page: "configuracion" },
 ];
