@@ -14,6 +14,7 @@ type InventoryPageProps = {
   currency?: string;
   productInsights: ProductInsight[];
   canEditInventory?: boolean;
+  userId: string;
 };
 
 type SortField = "name" | "salePrice" | "stock";
@@ -55,6 +56,7 @@ const InventoryPage = ({
   currency = "CLP",
   productInsights,
   canEditInventory = true,
+  userId,
 }: InventoryPageProps) => {
   const [formValues, setFormValues] = useState<FormState>(() =>
     createInitialFormState(defaultStockMin, defaultUnit)
@@ -165,6 +167,7 @@ const InventoryPage = ({
       purchasePrice: Number(formValues.purchasePrice) || 0,
       salePrice: Number(formValues.salePrice) || 0,
       supplier: formValues.supplier.trim(),
+      userId,
     };
 
     if (!payload.name) {
