@@ -92,7 +92,12 @@ const AuthPage = () => {
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, form.email, form.password);
+        const credential = await signInWithEmailAndPassword(
+          auth,
+          form.email,
+          form.password
+        );
+        console.log("Usuario autenticado:", credential.user);
         return;
       }
 

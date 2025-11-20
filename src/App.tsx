@@ -99,6 +99,12 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setAuthLoading(false);
+
+      if (firebaseUser) {
+        console.log("Usuario autenticado", firebaseUser);
+      } else {
+        console.log("No hay usuario autenticado");
+      }
     });
 
     return unsubscribe;
@@ -547,26 +553,32 @@ function App() {
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
-    const createdAtValue = payload.createdAt
-      ? Timestamp.fromDate(payload.createdAt)
-      : serverTimestamp();
-    const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
 
-    await addDoc(collection(db, "products"), {
-      name: payload.name,
-      nombre: payload.name,
-      category: payload.category,
-      categoria: payload.category,
-      stock: payload.stock,
-      stockMin: payload.stockMin,
-      unit: unitToSave,
-      purchasePrice: payload.purchasePrice,
-      salePrice: payload.salePrice,
-      supplier: payload.supplier,
-      proveedor: payload.supplier,
-      createdAt: createdAtValue,
-      userId: user.uid,
-    });
+    try {
+      const createdAtValue = payload.createdAt
+        ? Timestamp.fromDate(payload.createdAt)
+        : serverTimestamp();
+      const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
+
+      await addDoc(collection(db, "products"), {
+        name: payload.name,
+        nombre: payload.name,
+        category: payload.category,
+        categoria: payload.category,
+        stock: payload.stock,
+        stockMin: payload.stockMin,
+        unit: unitToSave,
+        purchasePrice: payload.purchasePrice,
+        salePrice: payload.salePrice,
+        supplier: payload.supplier,
+        proveedor: payload.supplier,
+        createdAt: createdAtValue,
+        userId: user.uid,
+      });
+    } catch (error) {
+      console.error("Error agregando producto en Firestore", error);
+      throw error;
+    }
   }
 
   async function handleUpdateProduct(id: string, payload: ProductPayload) {
@@ -576,22 +588,28 @@ function App() {
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
-    const productRef = doc(db, "products", id);
-    const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
-    await updateDoc(productRef, {
-      name: payload.name,
-      nombre: payload.name,
-      category: payload.category,
-      categoria: payload.category,
-      stock: payload.stock,
-      stockMin: payload.stockMin,
-      unit: unitToSave,
-      purchasePrice: payload.purchasePrice,
-      salePrice: payload.salePrice,
-      supplier: payload.supplier,
-      proveedor: payload.supplier,
-      userId: user.uid,
-    });
+
+    try {
+      const productRef = doc(db, "products", id);
+      const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
+      await updateDoc(productRef, {
+        name: payload.name,
+        nombre: payload.name,
+        category: payload.category,
+        categoria: payload.category,
+        stock: payload.stock,
+        stockMin: payload.stockMin,
+        unit: unitToSave,
+        purchasePrice: payload.purchasePrice,
+        salePrice: payload.salePrice,
+        supplier: payload.supplier,
+        proveedor: payload.supplier,
+        userId: user.uid,
+      });
+    } catch (error) {
+      console.error("Error actualizando producto en Firestore", error);
+      throw error;
+    }
   }
 
   async function handleDeleteProduct(id: string) {
@@ -601,8 +619,14 @@ function App() {
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
-    const productRef = doc(db, "products", id);
-    await deleteDoc(productRef);
+
+    try {
+      const productRef = doc(db, "products", id);
+      await deleteDoc(productRef);
+    } catch (error) {
+      console.error("Error eliminando producto en Firestore", error);
+      throw error;
+    }
   }
 
   async function handleQuickSale(payload: QuickSalePayload) {
@@ -626,19 +650,24 @@ function App() {
 
     const total = payload.quantity * payload.unitPrice;
 
-    await addDoc(collection(db, "sales"), {
-      productId: product.id,
-      productName: product.name,
-      quantity: payload.quantity,
-      unitPrice: payload.unitPrice,
-      total,
-      date: serverTimestamp(),
-    });
+    try {
+      await addDoc(collection(db, "sales"), {
+        productId: product.id,
+        productName: product.name,
+        quantity: payload.quantity,
+        unitPrice: payload.unitPrice,
+        total,
+        date: serverTimestamp(),
+      });
 
-    const productRef = doc(db, "products", product.id);
-    await updateDoc(productRef, {
-      stock: product.stock - payload.quantity,
-    });
+      const productRef = doc(db, "products", product.id);
+      await updateDoc(productRef, {
+        stock: product.stock - payload.quantity,
+      });
+    } catch (error) {
+      console.error("Error registrando venta rápida en Firestore", error);
+      throw error;
+    }
   }
 
   async function handleAddTransaction(payload: TransactionPayload) {
@@ -649,13 +678,18 @@ function App() {
       ? Timestamp.fromDate(payload.date)
       : serverTimestamp();
 
-    await addDoc(collection(db, "transactions"), {
-      type: payload.type,
-      amount: payload.amount,
-      description: payload.description,
-      category: payload.category,
-      date: dateValue,
-    });
+    try {
+      await addDoc(collection(db, "transactions"), {
+        type: payload.type,
+        amount: payload.amount,
+        description: payload.description,
+        category: payload.category,
+        date: dateValue,
+      });
+    } catch (error) {
+      console.error("Error guardando movimiento en Firestore", error);
+      throw error;
+    }
   }
 
   async function handleProcessInvoice(invoice: InvoiceRecord) {
@@ -679,65 +713,70 @@ function App() {
       };
     });
 
-    await addDoc(collection(db, "transactions"), {
-      type: "expense",
-      amount: invoice.total,
-      description: `Factura ${invoice.invoiceNumber} - ${invoice.supplier}`,
-      category: "Factura proveedor",
-      date: Timestamp.fromDate(issueDate),
-    });
+    try {
+      await addDoc(collection(db, "transactions"), {
+        type: "expense",
+        amount: invoice.total,
+        description: `Factura ${invoice.invoiceNumber} - ${invoice.supplier}`,
+        category: "Factura proveedor",
+        date: Timestamp.fromDate(issueDate),
+      });
 
-    await Promise.all(
-      normalizedItems.map(async (item) => {
-        const existing = products.find(
-          (product) => product.name.toLowerCase() === item.description.toLowerCase()
-        );
-        const productQuantity = item.quantity || 1;
-        const unitPrice = item.unitPrice || 0;
+      await Promise.all(
+        normalizedItems.map(async (item) => {
+          const existing = products.find(
+            (product) => product.name.toLowerCase() === item.description.toLowerCase()
+          );
+          const productQuantity = item.quantity || 1;
+          const unitPrice = item.unitPrice || 0;
 
-        if (existing) {
-          const productRef = doc(db, "products", existing.id);
-          await updateDoc(productRef, {
-            stock: existing.stock + productQuantity,
-            purchasePrice: unitPrice || existing.purchasePrice,
-            supplier: invoice.supplier || existing.supplier,
-            proveedor: invoice.supplier || existing.supplier,
-          });
-        } else {
-          await addDoc(collection(db, "products"), {
-            name: item.description,
-            nombre: item.description,
-            category: "Compras factura",
-            categoria: "Compras factura",
-            stock: productQuantity,
-            stockMin: settings?.defaultStockMin ?? 0,
-            unit: settings?.defaultUnit || "unidades",
-            purchasePrice: unitPrice,
-            salePrice: unitPrice ? unitPrice * 1.25 : 0,
-            supplier: invoice.supplier,
-            proveedor: invoice.supplier,
-            createdAt: Timestamp.fromDate(issueDate),
-            userId: user.uid,
-          });
-        }
-      })
-    );
+          if (existing) {
+            const productRef = doc(db, "products", existing.id);
+            await updateDoc(productRef, {
+              stock: existing.stock + productQuantity,
+              purchasePrice: unitPrice || existing.purchasePrice,
+              supplier: invoice.supplier || existing.supplier,
+              proveedor: invoice.supplier || existing.supplier,
+            });
+          } else {
+            await addDoc(collection(db, "products"), {
+              name: item.description,
+              nombre: item.description,
+              category: "Compras factura",
+              categoria: "Compras factura",
+              stock: productQuantity,
+              stockMin: settings?.defaultStockMin ?? 0,
+              unit: settings?.defaultUnit || "unidades",
+              purchasePrice: unitPrice,
+              salePrice: unitPrice ? unitPrice * 1.25 : 0,
+              supplier: invoice.supplier,
+              proveedor: invoice.supplier,
+              createdAt: Timestamp.fromDate(issueDate),
+              userId: user.uid,
+            });
+          }
+        })
+      );
 
-    await addDoc(collection(db, "invoices"), {
-      supplier: invoice.supplier,
-      invoiceNumber: invoice.invoiceNumber,
-      issueDate: Timestamp.fromDate(issueDate),
-      total: invoice.total,
-      currency: currencyToUse,
-      items: normalizedItems,
-      fileName: invoice.fileName,
-      fileType: invoice.fileType,
-      previewUrl: invoice.previewUrl,
-      rawText: invoice.rawText,
-      validationWarnings: invoice.validationWarnings || [],
-      createdAt: serverTimestamp(),
-      userId: user.uid,
-    });
+      await addDoc(collection(db, "invoices"), {
+        supplier: invoice.supplier,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: Timestamp.fromDate(issueDate),
+        total: invoice.total,
+        currency: currencyToUse,
+        items: normalizedItems,
+        fileName: invoice.fileName,
+        fileType: invoice.fileType,
+        previewUrl: invoice.previewUrl,
+        rawText: invoice.rawText,
+        validationWarnings: invoice.validationWarnings || [],
+        createdAt: serverTimestamp(),
+        userId: user.uid,
+      });
+    } catch (error) {
+      console.error("Error procesando factura en Firestore", error);
+      throw error;
+    }
   }
 
   async function handleSaveSettings(payload: Partial<BusinessSettings>) {
@@ -812,11 +851,16 @@ function App() {
       throw new Error("No tienes permisos para asignar roles");
     }
 
-    await setDoc(
-      doc(db, "userRoles", userId),
-      { role, permissions, updatedAt: serverTimestamp(), assignedBy: user.uid },
-      { merge: true }
-    );
+    try {
+      await setDoc(
+        doc(db, "userRoles", userId),
+        { role, permissions, updatedAt: serverTimestamp(), assignedBy: user.uid },
+        { merge: true }
+      );
+    } catch (error) {
+      console.error("Error actualizando rol de usuario en Firestore", error);
+      throw error;
+    }
   }
 
   const lastFiveSales = useMemo(() => sales.slice(0, 5), [sales]);
