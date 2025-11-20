@@ -175,3 +175,26 @@ export type DashboardWidgetConfig = {
   width: 1 | 2;
   title?: string;
 };
+
+export type InvoiceLineItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  productId?: string;
+};
+
+export type InvoiceRecord = {
+  id?: string;
+  supplier: string;
+  invoiceNumber: string;
+  issueDate: Date;
+  total: number;
+  currency?: string;
+  items: InvoiceLineItem[];
+  fileName: string;
+  fileType: string;
+  previewUrl?: string;
+  rawText?: string;
+  validationWarnings?: string[];
+};
