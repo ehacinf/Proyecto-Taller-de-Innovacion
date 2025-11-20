@@ -62,6 +62,23 @@ export type ProductPayload = {
   userId?: string;
 };
 
+export type PriceRecommendation = {
+  recommendedPrice: number;
+  variationPercentage: number;
+  rationale: string;
+};
+
+export type ProductInsight = {
+  productId: string;
+  productName: string;
+  predictedWeeklyDemand: number;
+  predictedDailyDemand: number;
+  demandLevel: "alta" | "media" | "baja";
+  stockoutInDays: number | null;
+  purchaseSuggestion: number;
+  priceRecommendation: PriceRecommendation;
+};
+
 export type Sale = {
   id: string;
   productId: string;

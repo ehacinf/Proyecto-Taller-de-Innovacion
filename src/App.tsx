@@ -33,7 +33,9 @@ import type {
   Sale,
   Transaction,
   TransactionPayload,
+  ProductInsight,
 } from "./types";
+import { calculateProductInsights } from "./utils/insights";
 
 function App() {
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
@@ -398,6 +400,10 @@ function App() {
   }
 
   const lastFiveSales = useMemo(() => sales.slice(0, 5), [sales]);
+  const productInsights = useMemo<ProductInsight[]>(
+    () => calculateProductInsights(products, sales),
+    [products, sales]
+  );
 
   async function handleSignOut() {
     try {
@@ -442,6 +448,7 @@ function App() {
             loadingProducts={loadingProducts}
             loadingSales={loadingSales}
             latestSales={lastFiveSales}
+            insights={productInsights}
           />
         )}
         {activePage === "inventario" && (
@@ -456,6 +463,7 @@ function App() {
             defaultStockMin={settings?.defaultStockMin}
             defaultUnit={settings?.defaultUnit}
             currency={settings?.currency}
+            productInsights={productInsights}
           />
         )}
         {activePage === "finanzas" && (

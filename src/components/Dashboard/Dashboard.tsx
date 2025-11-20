@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import type { Product, Sale } from "../../types";
+import React, { useMemo } from "react";
+import type { Product, ProductInsight, Sale } from "../../types";
 
 type DashboardProps = {
   products: Product[];
@@ -7,6 +7,7 @@ type DashboardProps = {
   latestSales: Sale[];
   loadingProducts: boolean;
   loadingSales: boolean;
+  insights: ProductInsight[];
 };
 
 const Dashboard = ({
@@ -15,6 +16,7 @@ const Dashboard = ({
   latestSales,
   loadingProducts,
   loadingSales,
+  insights,
 }: DashboardProps) => {
   const totalInventoryValue = useMemo(
     () =>
@@ -70,6 +72,32 @@ const Dashboard = ({
 
   const chartMax = Math.max(...chartData.map((item) => item.value), 1);
 
+  const topPredictions = useMemo(
+    () =>
+      [...insights]
+        .sort((a, b) => b.predictedWeeklyDemand - a.predictedWeeklyDemand)
+        .slice(0, 3),
+    [insights]
+  );
+
+  const stockoutRisks = useMemo(
+    () =>
+      insights
+        .filter((item) => typeof item.stockoutInDays === "number")
+        .sort((a, b) => (a.stockoutInDays ?? Infinity) - (b.stockoutInDays ?? Infinity))
+        .slice(0, 3),
+    [insights]
+  );
+
+  const suggestedPurchases = useMemo(
+    () =>
+      insights
+        .filter((item) => item.purchaseSuggestion > 0)
+        .sort((a, b) => b.purchaseSuggestion - a.purchaseSuggestion)
+        .slice(0, 3),
+    [insights]
+  );
+
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -94,6 +122,57 @@ const Dashboard = ({
           value={loadingProducts ? "…" : lowStockCount.toString()}
           subtitle="Productos en nivel crítico"
         />
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <InsightCard
+          title="Predicción de demanda"
+          description="Top productos que tendrán mayor movimiento la próxima semana."
+          emptyLabel="Aún no hay datos suficientes para predecir demanda."
+        >
+          {topPredictions.map((item) => (
+            <InsightRow
+              key={item.productId}
+              label={item.productName}
+              value={`${item.demandLevel.toUpperCase()} · ≈${item.predictedWeeklyDemand.toFixed(
+                1
+              )} uds/sem`}
+              helper={formatDemandHelper(item)}
+            />
+          ))}
+        </InsightCard>
+
+        <InsightCard
+          title="Próximo quiebre de stock"
+          description="Riesgo estimado con base en la velocidad de venta."
+          emptyLabel="Sin riesgo de quiebre detectado."
+        >
+          {stockoutRisks.map((item) => (
+            <InsightRow
+              key={item.productId}
+              label={item.productName}
+              value={item.stockoutInDays ? `${item.stockoutInDays} días` : "Sin riesgo"}
+              helper={`Stock actual alcanza para ${
+                item.stockoutInDays ? `${item.stockoutInDays} días` : "más de un mes"
+              }`}
+            />
+          ))}
+        </InsightCard>
+
+        <InsightCard
+          title="Sugerencias de compra"
+          description="Órdenes recomendadas para evitar desabastecimiento."
+          emptyLabel="No hay compras sugeridas en este momento."
+        >
+          {suggestedPurchases.map((item) => (
+            <InsightRow
+              key={item.productId}
+              label={item.productName}
+              value={`Pedir ${item.purchaseSuggestion} uds`}
+              helper={`Cobertura de ${SAFETY_LABEL} días más stock mínimo`}
+            />
+          ))}
+        </InsightCard>
       </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -176,6 +255,21 @@ type KpiCardProps = {
   positive?: boolean;
 };
 
+type InsightCardProps = {
+  title: string;
+  description: string;
+  emptyLabel: string;
+  children: React.ReactNode;
+};
+
+type InsightRowProps = {
+  label: string;
+  value: string;
+  helper?: string;
+};
+
+const SAFETY_LABEL = "14";
+
 function KpiCard({ title, value, subtitle, positive }: KpiCardProps) {
   return (
     <div className="bg-white rounded-2xl shadow-sm p-4">
@@ -184,6 +278,46 @@ function KpiCard({ title, value, subtitle, positive }: KpiCardProps) {
       <p className={`text-xs ${positive ? "text-green-600" : "text-gray-500"}`}>{subtitle}</p>
     </div>
   );
+}
+
+function InsightCard({ title, description, emptyLabel, children }: InsightCardProps) {
+  const hasItems = Array.isArray(children) ? children.length > 0 : !!children;
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 space-y-2">
+      <div>
+        <p className="text-xs uppercase tracking-[0.3em] text-primaryLight">{title}</p>
+        <h3 className="text-lg font-semibold text-primary">{description}</h3>
+      </div>
+      <div className="space-y-2">
+        {hasItems ? children : <p className="text-xs text-gray-500">{emptyLabel}</p>}
+      </div>
+    </div>
+  );
+}
+
+function InsightRow({ label, value, helper }: InsightRowProps) {
+  return (
+    <div className="bg-softGray rounded-2xl px-3 py-2 text-xs flex items-center justify-between">
+      <div>
+        <p className="font-semibold text-primary">{label}</p>
+        {helper && <p className="text-[11px] text-gray-500">{helper}</p>}
+      </div>
+      <p className="text-gray-700 font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function formatDemandHelper(item: ProductInsight) {
+  if (item.stockoutInDays === null) {
+    return "Sin ventas recientes, monitorea este SKU.";
+  }
+  const demandText =
+    item.demandLevel === "alta"
+      ? "demanda alta"
+      : item.demandLevel === "media"
+      ? "demanda estable"
+      : "demanda baja";
+  return `${demandText}; proyectado ${item.stockoutInDays} días de stock.`;
 }
 
 function formatCurrency(value: number) {
