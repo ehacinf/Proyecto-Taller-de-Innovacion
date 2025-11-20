@@ -118,12 +118,13 @@ const AuthPage = () => {
         },
         { merge: true }
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error en autenticación", error);
-      setErrorMsg(
-        error?.message ||
-          "Ocurrió un error. Revisa tus datos e inténtalo de nuevo."
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Ocurrió un error. Revisa tus datos e inténtalo de nuevo.";
+      setErrorMsg(message);
     } finally {
       setLoading(false);
     }
@@ -139,11 +140,13 @@ const AuthPage = () => {
       await sendPasswordResetEmail(auth, form.email);
       setResetMessage("Revisa tu correo para restablecer la contraseña");
       setErrorMsg(null);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error enviando correo de recuperación", error);
-      setErrorMsg(
-        error?.message || "No pudimos enviar el correo de recuperación"
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No pudimos enviar el correo de recuperación";
+      setErrorMsg(message);
     }
   }
 

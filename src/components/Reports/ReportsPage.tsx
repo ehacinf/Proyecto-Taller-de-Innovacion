@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { Product, Sale } from "../../types";
 
 type ReportMetric = "ventas" | "stock" | "proveedores";
@@ -56,21 +56,20 @@ const ReportsPage = ({
     "proveedores",
   ]);
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-  const [filterName, setFilterName] = useState("");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => {
+    if (typeof window === "undefined") return [];
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as SavedFilter[];
-        setSavedFilters(parsed);
-      } catch (error) {
-        console.error("No se pudieron cargar los filtros guardados", error);
-      }
+    if (!stored) return [];
+
+    try {
+      const parsed = JSON.parse(stored) as SavedFilter[];
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
+    } catch (error) {
+      console.error("No se pudieron cargar los filtros guardados", error);
+      return [];
     }
-  }, []);
+  });
+  const [filterName, setFilterName] = useState("");
 
   const saveFilters = (filters: SavedFilter[]) => {
     setSavedFilters(filters);

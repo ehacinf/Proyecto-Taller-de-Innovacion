@@ -104,7 +104,7 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
         )
       );
       setSelectedIndex(uploadIndex);
-    } catch (processingError: any) {
+    } catch (processingError: unknown) {
       console.error("Error procesando factura", processingError);
       setUploads((prev) =>
         prev.map((item, idx) =>
@@ -112,7 +112,10 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
             ? {
                 ...item,
                 status: "error",
-                error: processingError?.message || "No pudimos leer el archivo",
+                error:
+                  processingError instanceof Error
+                    ? processingError.message
+                    : "No pudimos leer el archivo",
               }
             : item
         )
@@ -178,9 +181,13 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
     try {
       await onProcessInvoice(upload.parsed);
       setFeedback(`Factura ${upload.parsed.invoiceNumber} integrada en inventario y finanzas.`);
-    } catch (savingError: any) {
+    } catch (savingError: unknown) {
       console.error("Error guardando factura", savingError);
-      setError(savingError?.message || "No pudimos guardar la factura");
+      const message =
+        savingError instanceof Error
+          ? savingError.message
+          : "No pudimos guardar la factura";
+      setError(message);
     } finally {
       setSaving(false);
       setTimeout(() => setFeedback(null), 4000);

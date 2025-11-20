@@ -4,7 +4,7 @@ function normalizeNumber(value: string | number | undefined): number {
   if (value === undefined) return 0;
   if (typeof value === "number") return value;
   const cleaned = value
-    .replace(/[\$CLPclp]/g, "")
+    .replace(/[$CLPclp]/g, "")
     .replace(/\s/g, "")
     .replace(/\./g, "")
     .replace(/,/g, ".");
@@ -39,13 +39,13 @@ export function parseInvoiceText(text: string, defaultCurrency = "CLP"): Invoice
   const invoiceNumber = invoiceNumberMatch?.[2] ?? "Sin número";
 
   const dateMatch =
-    text.match(/(\d{2}[\/-]\d{2}[\/-]\d{4})/) ||
-    text.match(/(\d{4}[\/-]\d{2}[\/-]\d{2})/);
+    text.match(/(\d{2}[/-]\d{2}[/-]\d{4})/) ||
+    text.match(/(\d{4}[/-]\d{2}[/-]\d{2})/);
   const issueDate = tryParseDate(dateMatch?.[1]) || new Date();
 
   const totalMatch =
-    text.match(/total\s*[:]?\s*\$?\s*([0-9.,]+)/i) ||
-    text.match(/monto\s*(bruto|total)?\s*[:]?\s*\$?\s*([0-9.,]+)/i);
+    text.match(/total\s*:?\s*\$?\s*([0-9.,]+)/i) ||
+    text.match(/monto\s*(bruto|total)?\s*:?\s*\$?\s*([0-9.,]+)/i);
   const total = normalizeNumber(totalMatch?.[1] || totalMatch?.[2]) || 0;
 
   const items: InvoiceLineItem[] = [];
