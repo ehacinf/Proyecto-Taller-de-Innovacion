@@ -73,11 +73,7 @@ function App() {
     }
 
     setLoadingProducts(true);
-    const q = query(
-      collection(db, "products"),
-      where("userId", "==", user.uid),
-      orderBy("nombre", "asc")
-    );
+    const q = query(collection(db, "products"), where("userId", "==", user.uid));
 
     const unsubscribe = onSnapshot(
       q,
