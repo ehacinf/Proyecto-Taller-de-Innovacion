@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
-import type { BusinessSettings, Sale, Transaction, TransactionPayload } from "../../types";
+import type React from "react";
+import type { BusinessSettings, InvoiceRecord, Sale, Transaction, TransactionPayload } from "../../types";
 import { sendDailySalesSummary } from "../../utils/notifications";
 import SiiIntegrationPanel from "./SiiIntegrationPanel";
+import InvoiceScanner from "./InvoiceScanner";
 
 type FinancePageProps = {
   sales: Sale[];
@@ -9,6 +11,7 @@ type FinancePageProps = {
   loadingSales: boolean;
   loadingTransactions: boolean;
   onAddTransaction: (payload: TransactionPayload) => Promise<void>;
+  onProcessInvoice: (invoice: InvoiceRecord) => Promise<void>;
   errorMessage?: string | null;
   defaultTaxRate?: number;
   currency?: string;
@@ -31,6 +34,7 @@ const FinancePage = ({
   loadingSales,
   loadingTransactions,
   onAddTransaction,
+  onProcessInvoice,
   errorMessage,
   defaultTaxRate = 19,
   currency = "CLP",
@@ -327,6 +331,8 @@ const FinancePage = ({
           </form>
         </div>
       </div>
+
+      <InvoiceScanner defaultCurrency={currency} onProcessInvoice={onProcessInvoice} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
