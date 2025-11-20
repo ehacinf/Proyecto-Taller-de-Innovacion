@@ -3,7 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCtWOjZbNePeZHb_Ih_nRfpdKb6N5Il86c",
   authDomain: "simpligest-17084.firebaseapp.com",
   projectId: "simpligest-17084",
@@ -13,9 +13,9 @@ const firebaseConfig = {
 };
 
 // Inicializar Firebase
-const app = initializeApp(firebaseConfig);
+export const firebaseApp = initializeApp(firebaseConfig);
 
 // Exportar servicios que usa la app
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const auth = getAuth(firebaseApp);
+export const db = getFirestore(firebaseApp);
 
