@@ -2,6 +2,7 @@ import { useMemo, useState, type ChangeEvent } from "react";
 import Tesseract from "tesseract.js";
 import type { InvoiceLineItem, InvoiceRecord } from "../../types";
 import { buildSiiXml, buildValidationWarnings, downloadXml, fileToDataUrl, parseInvoiceText } from "../../utils/invoice";
+import { pdfToImageFile } from "../../utils/pdf";
 
 type InvoiceScannerProps = {
   defaultCurrency?: string;
@@ -45,6 +46,9 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
     const upload = uploads[uploadIndex];
     if (!upload) return;
 
+    let workingFile = upload.file;
+    let workingPreview = upload.previewUrl;
+
     setUploads((prev) =>
       prev.map((item, idx) =>
         idx === uploadIndex
@@ -59,7 +63,12 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
     );
 
     try {
-      const { data } = await Tesseract.recognize(upload.file, "spa+eng", {
+      if (upload.file.type === "application/pdf") {
+        workingFile = await pdfToImageFile(upload.file);
+        workingPreview = await fileToDataUrl(workingFile);
+      }
+
+      const { data } = await Tesseract.recognize(workingFile, "spa+eng", {
         logger: (message) => {
           if (message.status === "recognizing text" && message.progress) {
             setUploads((prev) =>
@@ -74,12 +83,12 @@ const InvoiceScanner = ({ defaultCurrency = "CLP", onProcessInvoice }: InvoiceSc
       });
 
       const parsed = parseInvoiceText(data.text || "", defaultCurrency);
-      const fileContent = await fileToDataUrl(upload.file);
+      const fileContent = workingPreview || (await fileToDataUrl(workingFile));
       const complete: InvoiceRecord = {
         ...parsed,
         fileName: upload.file.name,
         fileType: upload.file.type,
-        previewUrl: upload.previewUrl || fileContent,
+        previewUrl: workingPreview || upload.previewUrl || fileContent,
       };
 
       setUploads((prev) =>
