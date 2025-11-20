@@ -313,7 +313,11 @@ function App() {
     }
 
     setLoadingSales(true);
-    const salesQuery = query(collection(db, "sales"), orderBy("date", "desc"));
+    const salesQuery = query(
+      collection(db, "sales"),
+      where("userId", "==", user.uid),
+      orderBy("date", "desc")
+    );
 
     const unsubscribe = onSnapshot(
       salesQuery,
@@ -414,6 +418,7 @@ function App() {
     setLoadingTransactions(true);
     const transactionsQuery = query(
       collection(db, "transactions"),
+      where("userId", "==", user.uid),
       orderBy("date", "desc")
     );
 
@@ -631,6 +636,9 @@ function App() {
 
   async function handleQuickSale(payload: QuickSalePayload) {
     setSaleError(null);
+    if (!user) {
+      throw new Error("Usuario no autenticado");
+    }
     if (!userPermissions.createSales) {
       throw new Error("No tienes permisos para registrar ventas");
     }
@@ -658,6 +666,7 @@ function App() {
         unitPrice: payload.unitPrice,
         total,
         date: serverTimestamp(),
+        userId: user.uid,
       });
 
       const productRef = doc(db, "products", product.id);
@@ -671,6 +680,9 @@ function App() {
   }
 
   async function handleAddTransaction(payload: TransactionPayload) {
+    if (!user) {
+      throw new Error("Usuario no autenticado");
+    }
     if (!userPermissions.manageTransactions) {
       throw new Error("No tienes permisos para registrar movimientos");
     }
@@ -685,6 +697,7 @@ function App() {
         description: payload.description,
         category: payload.category,
         date: dateValue,
+        userId: user.uid,
       });
     } catch (error) {
       console.error("Error guardando movimiento en Firestore", error);
@@ -720,6 +733,7 @@ function App() {
         description: `Factura ${invoice.invoiceNumber} - ${invoice.supplier}`,
         category: "Factura proveedor",
         date: Timestamp.fromDate(issueDate),
+        userId: user.uid,
       });
 
       await Promise.all(
