@@ -1,5 +1,5 @@
 // src/firebase.ts
-import { initializeApp } from "firebase/app";
+import { initializeApp, type FirebaseOptions } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import {
   initializeFirestore,
@@ -7,13 +7,23 @@ import {
   persistentMultipleTabManager,
 } from "firebase/firestore";
 
-export const firebaseConfig = {
-  apiKey: "AIzaSyCtWOjZbNePeZHb_Ih_nRfpdKb6N5Il86c",
-  authDomain: "simpligest-17084.firebaseapp.com",
-  projectId: "simpligest-17084",
-  storageBucket: "simpligest-17084.firebasestorage.app",
-  messagingSenderId: "10518317357",
-  appId: "1:10518317357:web:975bdbebd2552762f0eba4",
+const getEnvVariable = (key: keyof ImportMetaEnv): string => {
+  const value = import.meta.env[key];
+
+  if (!value) {
+    throw new Error(`Missing environment variable: ${key}`);
+  }
+
+  return value as string;
+};
+
+export const firebaseConfig: FirebaseOptions = {
+  apiKey: getEnvVariable("VITE_FIREBASE_API_KEY"),
+  authDomain: getEnvVariable("VITE_FIREBASE_AUTH_DOMAIN"),
+  projectId: getEnvVariable("VITE_FIREBASE_PROJECT_ID"),
+  storageBucket: getEnvVariable("VITE_FIREBASE_STORAGE_BUCKET"),
+  messagingSenderId: getEnvVariable("VITE_FIREBASE_MESSAGING_SENDER_ID"),
+  appId: getEnvVariable("VITE_FIREBASE_APP_ID"),
 };
 
 // Inicializar Firebase
