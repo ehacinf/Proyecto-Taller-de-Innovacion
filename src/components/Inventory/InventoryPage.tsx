@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Product, ProductInsight, ProductPayload } from "../../types";
+import { formatNumberInput, parseNumberInput } from "../../utils/numberFormat";
 
 type InventoryPageProps = {
   products: Product[];
@@ -34,11 +35,11 @@ function createInitialFormState(stockMin = 0, unit = "unidades"): FormState {
   return {
     name: "",
     category: "",
-    stock: "0",
-    stockMin: stockMin.toString(),
+    stock: "",
+    stockMin: formatNumberInput(stockMin),
     unit,
-    purchasePrice: "0",
-    salePrice: "0",
+    purchasePrice: "",
+    salePrice: "",
     supplier: "",
   };
 }
@@ -70,12 +71,18 @@ const InventoryPage = ({
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [detailProductId, setDetailProductId] = useState<string | null>(null);
+  const numericFields: (keyof FormState)[] = [
+    "stock",
+    "stockMin",
+    "purchasePrice",
+    "salePrice",
+  ];
 
   useEffect(() => {
     if (!editingId) {
       setFormValues((prev) => ({
         ...prev,
-        stockMin: (defaultStockMin ?? 0).toString(),
+        stockMin: formatNumberInput(defaultStockMin ?? 0),
         unit: defaultUnit,
       }));
     }
@@ -142,6 +149,10 @@ const InventoryPage = ({
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = event.target;
+    if (numericFields.includes(name as keyof FormState)) {
+      setFormValues((prev) => ({ ...prev, [name]: formatNumberInput(value) }));
+      return;
+    }
     setFormValues((prev) => ({ ...prev, [name]: value }));
   }
 
@@ -153,19 +164,14 @@ const InventoryPage = ({
       return;
     }
 
-    const trimmedStockMin = formValues.stockMin.trim();
-    const parsedStockMin = trimmedStockMin === "" ? NaN : Number(trimmedStockMin);
-    const fallbackStockMin = defaultStockMin ?? 0;
-    const resolvedStockMin = Number.isFinite(parsedStockMin) ? parsedStockMin : fallbackStockMin;
-
     const payload: ProductPayload = {
       name: formValues.name.trim(),
       category: formValues.category.trim(),
-      stock: Number(formValues.stock) || 0,
-      stockMin: resolvedStockMin,
+      stock: parseNumberInput(formValues.stock),
+      stockMin: parseNumberInput(formValues.stockMin) || defaultStockMin || 0,
       unit: formValues.unit || defaultUnit,
-      purchasePrice: Number(formValues.purchasePrice) || 0,
-      salePrice: Number(formValues.salePrice) || 0,
+      purchasePrice: parseNumberInput(formValues.purchasePrice),
+      salePrice: parseNumberInput(formValues.salePrice),
       supplier: formValues.supplier.trim(),
       userId,
     };
@@ -220,11 +226,11 @@ const InventoryPage = ({
     setFormValues({
       name: product.name,
       category: product.category,
-      stock: product.stock.toString(),
-      stockMin: product.stockMin.toString(),
+      stock: formatNumberInput(product.stock),
+      stockMin: formatNumberInput(product.stockMin),
       unit: product.unit || defaultUnit,
-      purchasePrice: product.purchasePrice.toString(),
-      salePrice: product.salePrice.toString(),
+      purchasePrice: formatNumberInput(product.purchasePrice),
+      salePrice: formatNumberInput(product.salePrice),
       supplier: product.supplier || "",
     });
   }
@@ -297,7 +303,8 @@ const InventoryPage = ({
             <div>
               <label className="text-gray-600 block mb-1">Stock actual</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 name="stock"
                 value={formValues.stock}
                 onChange={handleChange}
@@ -309,7 +316,8 @@ const InventoryPage = ({
             <div>
               <label className="text-gray-600 block mb-1">Stock mínimo</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 name="stockMin"
                 value={formValues.stockMin}
                 onChange={handleChange}
@@ -323,7 +331,8 @@ const InventoryPage = ({
             <div>
               <label className="text-gray-600 block mb-1">Precio compra</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 name="purchasePrice"
                 value={formValues.purchasePrice}
                 onChange={handleChange}
@@ -335,7 +344,8 @@ const InventoryPage = ({
             <div>
               <label className="text-gray-600 block mb-1">Precio venta</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 name="salePrice"
                 value={formValues.salePrice}
                 onChange={handleChange}

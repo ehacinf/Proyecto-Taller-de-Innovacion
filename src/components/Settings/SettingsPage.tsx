@@ -10,6 +10,7 @@ import type {
   UserRoleAssignment,
 } from "../../types";
 import { PERMISSION_LABELS, mergePermissions } from "../../utils/permissions";
+import { formatNumberInput, parseNumberInput } from "../../utils/numberFormat";
 
 export type SettingsPageProps = {
   settings: BusinessSettings | null;
@@ -88,10 +89,10 @@ function buildFormState(settings: BusinessSettings | null, fallbackEmail: string
     country: settings?.country ?? "",
     phone: settings?.phone ?? "",
     contactEmail: settings?.contactEmail || fallbackEmail,
-    defaultStockMin: (settings?.defaultStockMin ?? 0).toString(),
+    defaultStockMin: formatNumberInput(settings?.defaultStockMin ?? 0),
     defaultUnit: settings?.defaultUnit ?? "unidades",
     categories: settings?.categories ?? [],
-    defaultTaxRate: (settings?.defaultTaxRate ?? 19).toString(),
+    defaultTaxRate: formatNumberInput(settings?.defaultTaxRate ?? 19),
     currency: settings?.currency ?? "CLP",
     allowNegativeStock: settings?.allowNegativeStock ?? false,
     allowCustomPriceOnSale: settings?.allowCustomPriceOnSale ?? true,
@@ -175,6 +176,10 @@ const SettingsPage = ({
       setFormState((prev) => ({ ...prev, [name]: target.checked }));
       return;
     }
+    if (name === "defaultStockMin" || name === "defaultTaxRate") {
+      setFormState((prev) => ({ ...prev, [name]: formatNumberInput(value) }));
+      return;
+    }
     setFormState((prev) => ({ ...prev, [name]: value }));
   }
 
@@ -254,10 +259,10 @@ const SettingsPage = ({
       country: formState.country.trim(),
       phone: formState.phone.trim(),
       contactEmail: formState.contactEmail.trim(),
-      defaultStockMin: Number(formState.defaultStockMin) || 0,
+      defaultStockMin: parseNumberInput(formState.defaultStockMin),
       defaultUnit: formState.defaultUnit,
       categories: formState.categories,
-      defaultTaxRate: Number(formState.defaultTaxRate) || 0,
+      defaultTaxRate: parseNumberInput(formState.defaultTaxRate),
       currency: formState.currency,
       allowNegativeStock: formState.allowNegativeStock,
       allowCustomPriceOnSale: formState.allowCustomPriceOnSale,
@@ -399,7 +404,8 @@ const SettingsPage = ({
           <label className="flex flex-col gap-1">
             <span className="text-gray-600">Stock mínimo por defecto</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               min={0}
               name="defaultStockMin"
               value={formState.defaultStockMin}
@@ -493,7 +499,8 @@ const SettingsPage = ({
           <label className="flex flex-col gap-1">
             <span className="text-gray-600">IVA por defecto (%)</span>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               min={0}
               name="defaultTaxRate"
               value={formState.defaultTaxRate}
