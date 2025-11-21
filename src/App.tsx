@@ -139,6 +139,7 @@ type RawSettingsDoc = Partial<{
   whatsappEnabled: boolean;
   whatsappNumber: string;
   whatsappFrom: string;
+  twilioFrom: string;
   whatsappProvider: string;
   whatsappDailySummaryEnabled: boolean;
   whatsappDailySummaryTime: string;
@@ -1175,7 +1176,10 @@ function normalizeLayout(rawLayouts: unknown[]): DashboardWidgetConfig[] {
     .map((item) => {
       if (!item || typeof item !== "object") return null;
       const data = item as RawDashboardLayoutItem;
-      const metric = allowedMetrics.includes(data.metric) ? data.metric : null;
+      const metric =
+        typeof data.metric === "string" && allowedMetrics.includes(data.metric as DashboardMetric)
+          ? (data.metric as DashboardMetric)
+          : null;
       if (!metric) return null;
       const view: DashboardViewType =
         data.view === "chart" || data.view === "table" || data.view === "number"
