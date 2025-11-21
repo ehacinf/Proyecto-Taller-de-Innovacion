@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Product, QuickSalePayload } from "../../types";
+import { formatNumberInput, parseNumberInput } from "../../utils/numberFormat";
 
 type QuickSaleModalProps = {
   open: boolean;
@@ -19,11 +20,13 @@ const QuickSaleModal = ({
   allowPriceOverride = true,
 }: QuickSaleModalProps) => {
   const [selectedProduct, setSelectedProduct] = useState<string>("");
-  const [quantity, setQuantity] = useState(1);
-  const [unitPrice, setUnitPrice] = useState(0);
+  const [quantityInput, setQuantityInput] = useState("1");
+  const [unitPriceInput, setUnitPriceInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const canEditPrice = allowPriceOverride;
+  const quantity = parseNumberInput(quantityInput);
+  const unitPrice = parseNumberInput(unitPriceInput);
 
   const sortedProducts = useMemo(
     () => [...products].sort((a, b) => a.name.localeCompare(b.name)),
@@ -33,8 +36,8 @@ const QuickSaleModal = ({
   useEffect(() => {
     if (!open) {
       setSelectedProduct("");
-      setQuantity(1);
-      setUnitPrice(0);
+      setQuantityInput("1");
+      setUnitPriceInput("");
       setLocalError(null);
     }
   }, [open]);
@@ -43,7 +46,7 @@ const QuickSaleModal = ({
     if (selectedProduct) {
       const product = products.find((p) => p.id === selectedProduct);
       if (product) {
-        setUnitPrice(product.salePrice);
+        setUnitPriceInput(formatNumberInput(product.salePrice));
       }
     }
   }, [selectedProduct, products]);
@@ -117,20 +120,24 @@ const QuickSaleModal = ({
               <div>
                 <label className="text-gray-600 text-xs block mb-1">Cantidad</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   min={1}
-                  value={quantity}
-                  onChange={(event) => setQuantity(Number(event.target.value))}
+                  value={quantityInput}
+                  onChange={(event) => setQuantityInput(formatNumberInput(event.target.value))}
                   className="w-full px-3 py-2 rounded-xl border border-gray-200"
                 />
               </div>
               <div>
                 <label className="text-gray-600 text-xs block mb-1">Precio unitario</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   min={0}
-                  value={unitPrice}
-                  onChange={(event) => setUnitPrice(Number(event.target.value))}
+                  value={unitPriceInput}
+                  onChange={(event) =>
+                    setUnitPriceInput(formatNumberInput(event.target.value))
+                  }
                   className="w-full px-3 py-2 rounded-xl border border-gray-200 disabled:bg-gray-100"
                   disabled={!canEditPrice}
                 />

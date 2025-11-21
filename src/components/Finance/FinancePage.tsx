@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type React from "react";
 import type { BusinessSettings, InvoiceRecord, Sale, Transaction, TransactionPayload } from "../../types";
 import { sendDailySalesSummary } from "../../utils/notifications";
+import { formatNumberInput, parseNumberInput } from "../../utils/numberFormat";
 import SiiIntegrationPanel from "./SiiIntegrationPanel";
 import InvoiceScanner from "./InvoiceScanner";
 
@@ -150,6 +151,10 @@ const FinancePage = ({
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = event.target;
+    if (name === "amount") {
+      setFormValues((prev) => ({ ...prev, amount: formatNumberInput(value) }));
+      return;
+    }
     setFormValues((prev) => ({ ...prev, [name]: value }));
   }
 
@@ -161,7 +166,7 @@ const FinancePage = ({
       return;
     }
 
-    const amount = Number(formValues.amount);
+    const amount = parseNumberInput(formValues.amount);
     if (!amount) {
       setFormError("Ingresa un monto válido");
       return;
@@ -306,7 +311,8 @@ const FinancePage = ({
             <div>
               <label className="block mb-1 text-gray-600">Monto</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 name="amount"
                 value={formValues.amount}
                 onChange={handleChange}

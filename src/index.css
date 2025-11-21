@@ -13,6 +13,13 @@ body.theme-dark {
   color: #f3f4f6;
 }
 
+input,
+textarea,
+select {
+  color: #000 !important;
+  background-color: #fff !important;
+}
+
 body.text-large {
   font-size: 1.05rem;
 }
