@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import logoMark from "../../assets/simpligest-mark.svg";
 import type { ActivePage } from "../../types";
@@ -66,15 +67,31 @@ const MainLayout = ({
   canCreateSale = true,
   children,
 }: MainLayoutProps) => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { title, subtitle } = pageDescriptions[activePage];
-  const pageSet = allowedPages ?? new Set<ActivePage>(["inicio", "dashboard", "inventario", "finanzas", "reportes", "configuracion"]);
-  const filteredMenu = menuItems.filter((item) =>
-    item.page ? pageSet.has(item.page) : true
+  const pageSet = useMemo(
+    () => allowedPages ?? new Set<ActivePage>(["inicio", "dashboard", "inventario", "finanzas", "reportes", "configuracion"]),
+    [allowedPages]
   );
+  const filteredMenu = useMemo(
+    () => menuItems.filter((item) => (item.page ? pageSet.has(item.page) : true)),
+    [pageSet]
+  );
+
+  const handleChangePage = (page: ActivePage) => {
+    onChangePage(page);
+    setIsSidebarOpen(false);
+  };
 
   return (
     <div className="min-h-screen flex bg-softGray">
-      <aside className="w-64 bg-primary text-white flex flex-col">
+      <div
+        className={`fixed inset-y-0 left-0 z-30 w-64 bg-primary text-white flex flex-col transform transition-transform duration-200 md:static md:translate-x-0 ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        role="navigation"
+        aria-label="Menú principal"
+      >
         <div className="px-6 py-4 border-b border-white/10">
           <div className="flex items-center gap-3">
             <img
@@ -99,7 +116,7 @@ const MainLayout = ({
               active={item.page ? activePage === item.page : false}
               onClick={() => {
                 if (item.page) {
-                  onChangePage(item.page);
+                  handleChangePage(item.page);
                 }
               }}
             />
@@ -110,16 +127,45 @@ const MainLayout = ({
           <p>Ayuda y soporte</p>
           <p className="opacity-80">Chat interno · Tutoriales · Tooltips</p>
         </div>
-      </aside>
+      </div>
 
-      <div className="flex-1 flex flex-col">
-        <header className="h-16 bg-white flex flex-wrap gap-3 items-center justify-between px-6 shadow-sm">
-          <div>
-            <h2 className="text-lg font-semibold text-primary">{title}</h2>
-            <p className="text-xs text-gray-500">{subtitle}</p>
+      {isSidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm z-20 md:hidden"
+          aria-label="Cerrar menú"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-auto bg-white flex flex-wrap gap-3 items-center justify-between px-4 md:px-6 py-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex md:hidden items-center justify-center w-10 h-10 rounded-xl border border-gray-200 text-gray-600 hover:bg-softGray"
+              aria-label="Abrir menú"
+              onClick={() => setIsSidebarOpen(true)}
+            >
+              <span className="sr-only">Abrir menú</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="w-5 h-5"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div>
+              <h2 className="text-lg font-semibold text-primary">{title}</h2>
+              <p className="text-xs text-gray-500">{subtitle}</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex-1 flex flex-wrap gap-3 items-center justify-end min-w-0">
             {activePage === "inicio" ? (
               <>
                 <button
@@ -134,13 +180,15 @@ const MainLayout = ({
               </>
             ) : (
               <>
-                <input
-                  type="text"
-                  placeholder='Buscar productos, facturas, "ventas de hoy"...'
-                  className="hidden md:block w-72 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
-                  value={searchTerm}
-                  onChange={(event) => onSearchTermChange(event.target.value)}
-                />
+                <div className="flex-1 min-w-[200px] max-w-lg order-2 md:order-1">
+                  <input
+                    type="text"
+                    placeholder='Buscar productos, facturas, "ventas de hoy"...'
+                    className="w-full text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primaryLight/80"
+                    value={searchTerm}
+                    onChange={(event) => onSearchTermChange(event.target.value)}
+                  />
+                </div>
                 <button
                   onClick={onOpenQuickSale}
                   disabled={!canCreateSale}
@@ -150,12 +198,12 @@ const MainLayout = ({
                 </button>
               </>
             )}
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <div className="text-right hidden sm:block">
+            <div className="flex items-center gap-2 text-xs text-gray-500 order-3">
+              <div className="text-right hidden sm:block truncate">
                 <p className="text-[11px] uppercase tracking-wide text-gray-400">
                   Sesión activa
                 </p>
-                <p className="font-semibold text-primary">{userEmail}</p>
+                <p className="font-semibold text-primary truncate">{userEmail}</p>
               </div>
               <button
                 onClick={onSignOut}
@@ -167,7 +215,7 @@ const MainLayout = ({
           </div>
         </header>
 
-        <main className="flex-1 p-6 space-y-6">{children}</main>
+        <main className="flex-1 p-4 md:p-6 space-y-6 min-w-0">{children}</main>
       </div>
     </div>
   );
