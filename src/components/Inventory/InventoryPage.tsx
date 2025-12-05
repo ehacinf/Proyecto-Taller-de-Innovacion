@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Product, ProductInsight, ProductPayload } from "../../types";
+import type {
+  Product,
+  ProductInsight,
+  ProductPayload,
+  StockMovement,
+  StockTransferPayload,
+  Warehouse,
+  WarehousePayload,
+  WarehouseStock,
+} from "../../types";
 import { formatNumberInput, parseNumberInput } from "../../utils/numberFormat";
 
 type InventoryPageProps = {
@@ -16,6 +25,12 @@ type InventoryPageProps = {
   productInsights: ProductInsight[];
   canEditInventory?: boolean;
   userId: string;
+  warehouses: Warehouse[];
+  warehouseStocks: WarehouseStock[];
+  movements: StockMovement[];
+  onAddWarehouse: (payload: WarehousePayload) => Promise<void>;
+  onTransferStock: (payload: StockTransferPayload) => Promise<void>;
+  canManageWarehouses?: boolean;
 };
 
 type SortField = "name" | "salePrice" | "stock";
@@ -58,6 +73,12 @@ const InventoryPage = ({
   productInsights,
   canEditInventory = true,
   userId,
+  warehouses,
+  warehouseStocks,
+  movements,
+  onAddWarehouse,
+  onTransferStock,
+  canManageWarehouses = false,
 }: InventoryPageProps) => {
   const [formValues, setFormValues] = useState<FormState>(() =>
     createInitialFormState(defaultStockMin, defaultUnit)
@@ -71,6 +92,8 @@ const InventoryPage = ({
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [detailProductId, setDetailProductId] = useState<string | null>(null);
+  const [warehouseForm, setWarehouseForm] = useState<WarehousePayload>({ name: "", description: "" });
+  const [transferForm, setTransferForm] = useState<StockTransferPayload | null>(null);
   const numericFields: (keyof FormState)[] = [
     "stock",
     "stockMin",
@@ -145,6 +168,19 @@ const InventoryPage = ({
     [productInsights, selectedProduct?.id]
   );
 
+  const selectedMovements = useMemo(
+    () =>
+      movements
+        .filter((movement) => movement.productId === selectedProduct?.id)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+    [movements, selectedProduct?.id]
+  );
+
+  const stockByWarehouse = useMemo(() => {
+    if (!selectedProduct) return [] as WarehouseStock[];
+    return warehouseStocks.filter((stock) => stock.productId === selectedProduct.id);
+  }, [selectedProduct, warehouseStocks]);
+
   function handleChange(
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
@@ -200,6 +236,43 @@ const InventoryPage = ({
     } finally {
       setSubmitting(false);
       setTimeout(() => setFeedbackMessage(null), 4000);
+    }
+  }
+
+  async function handleAddWarehouse(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageWarehouses) return;
+    if (!warehouseForm.name.trim()) {
+      setFormError("Ingresa un nombre para la bodega");
+      return;
+    }
+    try {
+      await onAddWarehouse({
+        name: warehouseForm.name.trim(),
+        description: warehouseForm.description?.trim(),
+      });
+      setWarehouseForm({ name: "", description: "" });
+      setFeedbackMessage("Bodega guardada");
+    } catch (error) {
+      console.error("Error guardando bodega", error);
+      setFormError("No pudimos guardar la bodega");
+    }
+  }
+
+  async function handleTransferSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!transferForm || !selectedProduct) return;
+    if (!transferForm.quantity || transferForm.quantity <= 0) {
+      setFormError("Ingresa una cantidad válida para transferir");
+      return;
+    }
+    try {
+      await onTransferStock({ ...transferForm, productId: selectedProduct.id });
+      setTransferForm(null);
+      setFeedbackMessage("Transferencia registrada");
+    } catch (error) {
+      console.error("Error registrando transferencia", error);
+      setFormError("No pudimos realizar la transferencia");
     }
   }
 
@@ -584,6 +657,177 @@ const InventoryPage = ({
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {selectedProduct && (
+          <div className="bg-white rounded-xl shadow-sm p-4 mt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.25em] text-primaryLight">Stock</p>
+                <h4 className="text-sm font-semibold text-primary">{selectedProduct.name}</h4>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm text-primary">Stock por bodega</h4>
+                <ul className="divide-y divide-gray-100">
+                  {stockByWarehouse.map((stock) => {
+                    const warehouse = warehouses.find((item) => item.id === stock.warehouseId);
+                    return (
+                      <li key={stock.warehouseId} className="py-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>{warehouse?.name || "Bodega"}</span>
+                          <span className="font-semibold">{stock.quantity}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {stockByWarehouse.length === 0 && (
+                    <li className="py-2 text-sm text-gray-500">Sin bodegas asignadas</li>
+                  )}
+                </ul>
+                {warehouses.length >= 2 && (
+                  <form onSubmit={handleTransferSubmit} className="space-y-2">
+                    <h5 className="text-sm font-semibold text-primary">Transferir stock</h5>
+                    <select
+                      required
+                      className="w-full border rounded-lg px-3 py-2 text-sm"
+                      value={transferForm?.fromWarehouseId || ""}
+                      onChange={(e) =>
+                        setTransferForm((prev) => ({
+                          ...(prev || {
+                            toWarehouseId: "",
+                            fromWarehouseId: "",
+                            quantity: 0,
+                            productId: selectedProduct.id,
+                          }),
+                          fromWarehouseId: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Bodega origen</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      required
+                      className="w-full border rounded-lg px-3 py-2 text-sm"
+                      value={transferForm?.toWarehouseId || ""}
+                      onChange={(e) =>
+                        setTransferForm((prev) => ({
+                          ...(prev || {
+                            toWarehouseId: "",
+                            fromWarehouseId: "",
+                            quantity: 0,
+                            productId: selectedProduct.id,
+                          }),
+                          toWarehouseId: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Bodega destino</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-full border rounded-lg px-3 py-2 text-sm"
+                      placeholder="Cantidad a transferir"
+                      value={transferForm?.quantity || ""}
+                      onChange={(e) =>
+                        setTransferForm((prev) => ({
+                          ...(prev || {
+                            toWarehouseId: "",
+                            fromWarehouseId: "",
+                            quantity: 0,
+                            productId: selectedProduct.id,
+                          }),
+                          quantity: Number(e.target.value),
+                        }))
+                      }
+                    />
+                    <button
+                      type="submit"
+                      className="w-full bg-primary text-white rounded-lg py-2 text-sm font-semibold"
+                    >
+                      Registrar transferencia
+                    </button>
+                  </form>
+                )}
+              </div>
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm text-primary">Historial de movimientos</h4>
+                <div className="max-h-64 overflow-y-auto border rounded-lg divide-y divide-gray-100">
+                  {selectedMovements.map((movement) => {
+                    const warehouse = warehouses.find((item) => item.id === movement.warehouseId);
+                    return (
+                      <div key={movement.id} className="p-3 text-sm">
+                        <div className="flex justify-between text-gray-700">
+                          <span className="font-semibold capitalize">{movement.type}</span>
+                          <span>{movement.createdAt.toLocaleString()}</span>
+                        </div>
+                        <p className="text-gray-600">
+                          Cambio: {movement.previousStock} → {movement.newStock} ({movement.quantity})
+                        </p>
+                        {warehouse && <p className="text-gray-500">Bodega: {warehouse.name}</p>}
+                        {movement.note && <p className="text-gray-500">{movement.note}</p>}
+                      </div>
+                    );
+                  })}
+                  {selectedMovements.length === 0 && (
+                    <div className="p-3 text-sm text-gray-500">Sin movimientos registrados</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {canManageWarehouses && (
+          <div className="bg-white rounded-xl shadow-sm p-4 mt-4 space-y-3">
+            <h3 className="text-sm font-semibold text-primary">Bodegas</h3>
+            <form onSubmit={handleAddWarehouse} className="space-y-2 text-sm">
+              <input
+                className="w-full border rounded-lg px-3 py-2"
+                placeholder="Nombre de la bodega"
+                value={warehouseForm.name}
+                onChange={(e) => setWarehouseForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+              <textarea
+                className="w-full border rounded-lg px-3 py-2"
+                placeholder="Descripción"
+                value={warehouseForm.description || ""}
+                onChange={(e) =>
+                  setWarehouseForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+              />
+              <button
+                type="submit"
+                className="w-full bg-primary text-white rounded-lg py-2 font-semibold"
+              >
+                Guardar bodega
+              </button>
+            </form>
+            <ul className="divide-y divide-gray-100 text-sm">
+              {warehouses.map((warehouse) => (
+                <li key={warehouse.id} className="py-2">
+                  <p className="font-semibold text-gray-800">{warehouse.name}</p>
+                  {warehouse.description && (
+                    <p className="text-xs text-gray-500">{warehouse.description}</p>
+                  )}
+                </li>
+              ))}
+              {warehouses.length === 0 && (
+                <li className="py-2 text-xs text-gray-500">Aún no hay bodegas creadas</li>
+              )}
+            </ul>
           </div>
         )}
       </div>

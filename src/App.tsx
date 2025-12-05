@@ -43,6 +43,11 @@ import type {
   RoleKey,
   UserProfile,
   UserRoleAssignment,
+  Warehouse,
+  WarehousePayload,
+  WarehouseStock,
+  StockMovement,
+  StockTransferPayload,
 } from "./types";
 import { getDefaultDashboardLayout } from "./utils/dashboard";
 import { calculateProductInsights } from "./utils/insights";
@@ -263,6 +268,9 @@ function MainApp({ user }: { user: User }) {
   const [dashboardLayoutFeedback, setDashboardLayoutFeedback] = useState<string | null>(null);
   const lowStockAlertedRef = useRef<Set<string>>(new Set());
   const summarySentRef = useRef<string | null>(null);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseStocks, setWarehouseStocks] = useState<WarehouseStock[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
 
   const {
     currentCompanyId,
@@ -329,14 +337,15 @@ function MainApp({ user }: { user: User }) {
   }, [activePage, allowedPages]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !currentCompanyId) {
       setProducts([]);
       setLoadingProducts(false);
       return;
     }
 
     setLoadingProducts(true);
-    const q = query(collection(db, "products"), where("userId", "==", user.uid));
+    const productsRef = collection(db, "companies", currentCompanyId, "products");
+    const q = query(productsRef, where("companyId", "==", currentCompanyId));
 
     const unsubscribe = onSnapshot(
       q,
@@ -361,6 +370,7 @@ function MainApp({ user }: { user: User }) {
             supplier: raw.supplier ?? raw.proveedor ?? "",
             createdAt,
             userId: raw.userId ?? user.uid,
+            companyId: currentCompanyId,
           };
         });
 
@@ -377,7 +387,7 @@ function MainApp({ user }: { user: User }) {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [currentCompanyId, user]);
 
   useEffect(() => {
     if (!settings?.whatsappEnabled || !settings.alertStockEnabled) {
@@ -402,6 +412,129 @@ function MainApp({ user }: { user: User }) {
       }
     });
   }, [products, settings]);
+
+  useEffect(() => {
+    if (!currentCompanyId) {
+      setWarehouses([]);
+      return;
+    }
+    const warehousesRef = collection(db, "companies", currentCompanyId, "warehouses");
+    const unsubscribe = onSnapshot(
+      warehousesRef,
+      async (snapshot) => {
+        if (snapshot.empty) {
+          await addDoc(warehousesRef, {
+            name: "Bodega principal",
+            description: "Bodega creada automáticamente",
+            companyId: currentCompanyId,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          return;
+        }
+        const nextWarehouses: Warehouse[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as WarehousePayload & {
+            companyId: string;
+            createdAt?: Timestamp | Date | string | number | null;
+            updatedAt?: Timestamp | Date | string | number | null;
+          };
+          return {
+            id: docSnap.id,
+            name: data.name,
+            description: data.description,
+            companyId: data.companyId,
+            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : null,
+            updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : null,
+          };
+        });
+        setWarehouses(nextWarehouses);
+      },
+      (error) => console.error("Error cargando bodegas", error)
+    );
+
+    return () => unsubscribe();
+  }, [currentCompanyId]);
+
+  useEffect(() => {
+    if (!currentCompanyId || warehouses.length === 0) {
+      setWarehouseStocks([]);
+      return;
+    }
+    const unsubscribes = warehouses.map((warehouse) => {
+      const stocksRef = collection(
+        db,
+        "companies",
+        currentCompanyId,
+        "warehouses",
+        warehouse.id,
+        "stocks"
+      );
+      return onSnapshot(
+        stocksRef,
+        (snapshot) => {
+          const items: WarehouseStock[] = snapshot.docs.map((docSnap) => {
+            const data = docSnap.data() as { quantity?: number | string };
+            return {
+              warehouseId: warehouse.id,
+              productId: docSnap.id,
+              quantity: Number(data.quantity ?? 0),
+            };
+          });
+          setWarehouseStocks((prev) => {
+            const others = prev.filter((item) => item.warehouseId !== warehouse.id);
+            return [...others, ...items];
+          });
+        },
+        (error) => console.error("Error cargando stock por bodega", error)
+      );
+    });
+
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [currentCompanyId, warehouses]);
+
+  useEffect(() => {
+    if (!currentCompanyId) {
+      setStockMovements([]);
+      return;
+    }
+
+    const movementsRef = collection(db, "companies", currentCompanyId, "stockMovements");
+    const unsubscribe = onSnapshot(
+      movementsRef,
+      (snapshot) => {
+        const nextMovements: StockMovement[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as {
+            productId: string;
+            companyId: string;
+            warehouseId?: string;
+            type: StockMovement["type"];
+            quantity: number;
+            previousStock: number;
+            newStock: number;
+            createdAt?: Timestamp | Date | string | number;
+            userId: string;
+            note?: string;
+          };
+          return {
+            id: docSnap.id,
+            ...data,
+            createdAt:
+              data.createdAt instanceof Timestamp
+                ? data.createdAt.toDate()
+                : data.createdAt
+                ? new Date(data.createdAt)
+                : new Date(),
+          };
+        });
+        setStockMovements(nextMovements);
+      },
+      (error) => console.error("Error cargando movimientos", error)
+    );
+
+    return () => unsubscribe();
+  }, [currentCompanyId]);
 
   useEffect(() => {
     if (!user) {
@@ -657,12 +790,102 @@ function MainApp({ user }: { user: User }) {
       .catch((error) => console.error("Error enviando resumen diario automático", error));
   }, [sales, settings]);
 
+  const getDefaultWarehouseId = () => warehouses[0]?.id;
+
+  async function recordStockMovement(
+    movement: Omit<StockMovement, "id" | "createdAt"> & { createdAt?: Date }
+  ) {
+    if (!currentCompanyId) return;
+    const createdAtValue = movement.createdAt ? Timestamp.fromDate(movement.createdAt) : serverTimestamp();
+    const movementsRef = collection(db, "companies", currentCompanyId, "stockMovements");
+    await addDoc(movementsRef, {
+      ...movement,
+      createdAt: createdAtValue,
+    });
+  }
+
+  async function setWarehouseStock(
+    warehouseId: string,
+    productId: string,
+    quantity: number,
+    note?: string
+  ) {
+    if (!currentCompanyId) return;
+    const stockRef = doc(
+      db,
+      "companies",
+      currentCompanyId,
+      "warehouses",
+      warehouseId,
+      "stocks",
+      productId
+    );
+    const existing = await getDoc(stockRef);
+    const previous = existing.exists() ? Number((existing.data() as { quantity?: number }).quantity ?? 0) : 0;
+    await setDoc(stockRef, { quantity }, { merge: true });
+
+    await recordStockMovement({
+      productId,
+      companyId: currentCompanyId,
+      warehouseId,
+      type: "ajuste",
+      quantity: quantity - previous,
+      previousStock: previous,
+      newStock: quantity,
+      userId: user?.uid || "",
+      note,
+    });
+  }
+
+  async function adjustWarehouseStock(
+    warehouseId: string,
+    productId: string,
+    delta: number,
+    type: StockMovement["type"],
+    note?: string
+  ) {
+    if (!currentCompanyId) return;
+    const stockRef = doc(
+      db,
+      "companies",
+      currentCompanyId,
+      "warehouses",
+      warehouseId,
+      "stocks",
+      productId
+    );
+    const existing = await getDoc(stockRef);
+    const previous = existing.exists() ? Number((existing.data() as { quantity?: number }).quantity ?? 0) : 0;
+    const next = previous + delta;
+    if (next < 0) {
+      throw new Error("No hay stock suficiente en la bodega seleccionada");
+    }
+    await setDoc(stockRef, { quantity: next }, { merge: true });
+    await recordStockMovement({
+      productId,
+      companyId: currentCompanyId,
+      warehouseId,
+      type,
+      quantity: delta,
+      previousStock: previous,
+      newStock: next,
+      userId: user?.uid || "",
+      note,
+    });
+    return next;
+  }
+
   async function handleAddProduct(payload: ProductPayload) {
-    if (!user) {
+    if (!user || !currentCompanyId) {
       throw new Error("Usuario no autenticado");
     }
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
+    }
+
+    const defaultWarehouseId = getDefaultWarehouseId();
+    if (!defaultWarehouseId) {
+      throw new Error("Debes crear una bodega antes de agregar productos");
     }
 
     try {
@@ -671,7 +894,7 @@ function MainApp({ user }: { user: User }) {
         : serverTimestamp();
       const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
 
-      const docRef = await addDoc(collection(db, "products"), {
+      const docRef = await addDoc(collection(db, "companies", currentCompanyId, "products"), {
         name: payload.name,
         nombre: payload.name,
         category: payload.category,
@@ -685,7 +908,16 @@ function MainApp({ user }: { user: User }) {
         proveedor: payload.supplier,
         createdAt: createdAtValue,
         userId: user.uid,
+        companyId: currentCompanyId,
       });
+
+      await adjustWarehouseStock(
+        defaultWarehouseId,
+        docRef.id,
+        payload.stock,
+        "inicial",
+        "Stock inicial"
+      );
 
       console.info("Producto guardado en Firestore", { id: docRef.id });
     } catch (error) {
@@ -695,15 +927,18 @@ function MainApp({ user }: { user: User }) {
   }
 
   async function handleUpdateProduct(id: string, payload: ProductPayload) {
-    if (!user) {
+    if (!user || !currentCompanyId) {
       throw new Error("Usuario no autenticado");
     }
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
 
+    const previous = products.find((product) => product.id === id);
+    const defaultWarehouseId = getDefaultWarehouseId();
+
     try {
-      const productRef = doc(db, "products", id);
+      const productRef = doc(db, "companies", currentCompanyId, "products", id);
       const unitToSave = payload.unit || settings?.defaultUnit || "unidades";
       await updateDoc(productRef, {
         name: payload.name,
@@ -720,6 +955,17 @@ function MainApp({ user }: { user: User }) {
         userId: user.uid,
       });
 
+      if (defaultWarehouseId && previous && previous.stock !== payload.stock) {
+        const delta = payload.stock - previous.stock;
+        await adjustWarehouseStock(
+          defaultWarehouseId,
+          id,
+          delta,
+          "ajuste",
+          "Actualización manual de stock"
+        );
+      }
+
       console.info("Producto actualizado en Firestore", { id });
     } catch (error) {
       console.error("Error actualizando producto en Firestore", error);
@@ -728,15 +974,20 @@ function MainApp({ user }: { user: User }) {
   }
 
   async function handleDeleteProduct(id: string) {
-    if (!user) {
+    if (!user || !currentCompanyId) {
       throw new Error("Usuario no autenticado");
     }
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
 
+    const hasMovements = stockMovements.some((movement) => movement.productId === id);
+    if (hasMovements) {
+      throw new Error("No puedes eliminar productos con historial de movimientos");
+    }
+
     try {
-      const productRef = doc(db, "products", id);
+      const productRef = doc(db, "companies", currentCompanyId, "products", id);
       await deleteDoc(productRef);
     } catch (error) {
       console.error("Error eliminando producto en Firestore", error);
@@ -744,9 +995,63 @@ function MainApp({ user }: { user: User }) {
     }
   }
 
+  async function handleAddWarehouse(payload: WarehousePayload) {
+    if (!user || !currentCompanyId) {
+      throw new Error("Usuario no autenticado");
+    }
+    if (companyRole !== "owner" && companyRole !== "admin") {
+      throw new Error("Solo administradores pueden crear bodegas");
+    }
+
+    const warehousesRef = collection(db, "companies", currentCompanyId, "warehouses");
+    await addDoc(warehousesRef, {
+      ...payload,
+      companyId: currentCompanyId,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      userId: user.uid,
+    });
+  }
+
+  async function handleTransferStock(payload: StockTransferPayload) {
+    if (!currentCompanyId) {
+      throw new Error("Debes seleccionar una empresa");
+    }
+    if (!userPermissions.editInventory) {
+      throw new Error("No tienes permisos para transferir stock");
+    }
+    if (payload.fromWarehouseId === payload.toWarehouseId) {
+      throw new Error("Elige bodegas distintas para transferir");
+    }
+
+    const originStock = warehouseStocks.find(
+      (stock) => stock.warehouseId === payload.fromWarehouseId && stock.productId === payload.productId
+    );
+
+    if ((originStock?.quantity ?? 0) < payload.quantity) {
+      throw new Error("No hay stock suficiente en la bodega origen");
+    }
+
+    await adjustWarehouseStock(
+      payload.fromWarehouseId,
+      payload.productId,
+      -payload.quantity,
+      "transferencia",
+      "Salida por transferencia"
+    );
+
+    await adjustWarehouseStock(
+      payload.toWarehouseId,
+      payload.productId,
+      payload.quantity,
+      "transferencia",
+      "Ingreso por transferencia"
+    );
+  }
+
   async function handleQuickSale(payload: QuickSalePayload) {
     setSaleError(null);
-    if (!user) {
+    if (!user || !currentCompanyId) {
       throw new Error("Usuario no autenticado");
     }
     if (!userPermissions.createSales) {
@@ -768,8 +1073,10 @@ function MainApp({ user }: { user: User }) {
 
     const total = payload.quantity * payload.unitPrice;
 
+    const defaultWarehouseId = getDefaultWarehouseId();
+
     try {
-      const docRef = await addDoc(collection(db, "sales"), {
+      const docRef = await addDoc(collection(db, "companies", currentCompanyId, "sales"), {
         productId: product.id,
         productName: product.name,
         quantity: payload.quantity,
@@ -777,14 +1084,25 @@ function MainApp({ user }: { user: User }) {
         total,
         date: serverTimestamp(),
         userId: user.uid,
+        companyId: currentCompanyId,
       });
 
       console.info("Venta guardada en Firestore", { id: docRef.id });
 
-      const productRef = doc(db, "products", product.id);
+      const productRef = doc(db, "companies", currentCompanyId, "products", product.id);
       await updateDoc(productRef, {
         stock: product.stock - payload.quantity,
       });
+
+      if (defaultWarehouseId) {
+        await adjustWarehouseStock(
+          defaultWarehouseId,
+          product.id,
+          -payload.quantity,
+          "venta",
+          "Salida por venta"
+        );
+      }
     } catch (error) {
       console.error("Error registrando venta rápida en Firestore", error);
       throw error;
@@ -860,16 +1178,26 @@ function MainApp({ user }: { user: User }) {
           const productQuantity = item.quantity || 1;
           const unitPrice = item.unitPrice || 0;
 
+          const defaultWarehouseId = getDefaultWarehouseId();
           if (existing) {
-            const productRef = doc(db, "products", existing.id);
+            const productRef = doc(db, "companies", currentCompanyId, "products", existing.id);
             await updateDoc(productRef, {
               stock: existing.stock + productQuantity,
               purchasePrice: unitPrice || existing.purchasePrice,
               supplier: invoice.supplier || existing.supplier,
               proveedor: invoice.supplier || existing.supplier,
             });
+            if (defaultWarehouseId) {
+              await adjustWarehouseStock(
+                defaultWarehouseId,
+                existing.id,
+                productQuantity,
+                "compra",
+                "Entrada por factura"
+              );
+            }
           } else {
-            const docRef = await addDoc(collection(db, "products"), {
+            const docRef = await addDoc(collection(db, "companies", currentCompanyId, "products"), {
               name: item.description,
               nombre: item.description,
               category: "Compras factura",
@@ -883,7 +1211,18 @@ function MainApp({ user }: { user: User }) {
               proveedor: invoice.supplier,
               createdAt: Timestamp.fromDate(issueDate),
               userId: user.uid,
+              companyId: currentCompanyId,
             });
+
+            if (defaultWarehouseId) {
+              await adjustWarehouseStock(
+                defaultWarehouseId,
+                docRef.id,
+                productQuantity,
+                "compra",
+                "Entrada por factura"
+              );
+            }
 
             console.info("Producto creado desde factura", { id: docRef.id });
           }
@@ -1069,6 +1408,12 @@ function MainApp({ user }: { user: User }) {
             productInsights={productInsights}
             canEditInventory={userPermissions.editInventory}
             userId={user.uid}
+            warehouses={warehouses}
+            warehouseStocks={warehouseStocks}
+            movements={stockMovements}
+            onAddWarehouse={handleAddWarehouse}
+            onTransferStock={handleTransferStock}
+            canManageWarehouses={companyRole === "owner" || companyRole === "admin"}
           />
         )}
         {activePage === "finanzas" && (

@@ -101,6 +101,7 @@ export type Product = {
   supplier?: string;
   createdAt?: Date | null;
   userId: string;
+  companyId?: string;
 };
 
 export type ProductPayload = {
@@ -114,6 +115,7 @@ export type ProductPayload = {
   supplier: string;
   createdAt?: Date | null;
   userId: string;
+  companyId?: string;
 };
 
 export type PriceRecommendation = {
@@ -131,6 +133,49 @@ export type ProductInsight = {
   stockoutInDays: number | null;
   purchaseSuggestion: number;
   priceRecommendation: PriceRecommendation;
+};
+
+export type Warehouse = {
+  id: string;
+  name: string;
+  description?: string;
+  companyId: string;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+};
+
+export type WarehousePayload = {
+  name: string;
+  description?: string;
+};
+
+export type WarehouseStock = {
+  warehouseId: string;
+  productId: string;
+  quantity: number;
+};
+
+export type StockMovementType = "venta" | "compra" | "ajuste" | "transferencia" | "inicial";
+
+export type StockMovement = {
+  id: string;
+  productId: string;
+  companyId: string;
+  warehouseId?: string;
+  type: StockMovementType;
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  createdAt: Date;
+  userId: string;
+  note?: string;
+};
+
+export type StockTransferPayload = {
+  productId: string;
+  fromWarehouseId: string;
+  toWarehouseId: string;
+  quantity: number;
 };
 
 export type Sale = {
