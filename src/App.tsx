@@ -23,6 +23,7 @@ import InventoryPage from "./components/Inventory/InventoryPage";
 import QuickSaleModal from "./components/Sales/QuickSaleModal";
 import FinancePage from "./components/Finance/FinancePage";
 import SettingsPage from "./components/Settings/SettingsPage";
+import CompanyMembersPage from "./components/Settings/CompanyMembersPage";
 import ReportsPage from "./components/Reports/ReportsPage";
 import type {
   ActivePage,
@@ -53,23 +54,10 @@ import {
 } from "./utils/notifications";
 import {
   getAllowedPagesFromPermissions,
-  mergePermissions,
   ROLE_DEFINITIONS,
 } from "./utils/permissions";
-
-type FirestoreUserData = {
-  nombre?: string;
-  negocio?: string;
-  tamano?: string;
-  email?: string;
-};
-
-type FirestoreRoleData = {
-  role?: RoleKey;
-  permissions?: Partial<PermissionSet>;
-  assignedBy?: string;
-  updatedAt?: Timestamp | Date | string | number | null;
-};
+import { CompanyProvider, useCompany } from "./contexts/CompanyContext";
+import type { CompanyRole } from "./models/tenant";
 
 type FirestoreProductData = {
   name?: string;
@@ -116,6 +104,58 @@ type RawDashboardLayoutItem = Partial<{
   id: string;
   title?: string;
 }>;
+
+const EMPTY_PERMISSIONS: PermissionSet = {
+  viewInventory: false,
+  editInventory: false,
+  viewSales: false,
+  createSales: false,
+  viewFinance: false,
+  manageTransactions: false,
+  manageUsers: false,
+};
+
+function permissionsFromCompanyRole(role: CompanyRole | null): PermissionSet {
+  if (!role) return { ...EMPTY_PERMISSIONS };
+
+  if (role === "owner" || role === "admin") {
+    return {
+      viewInventory: true,
+      editInventory: true,
+      viewSales: true,
+      createSales: true,
+      viewFinance: true,
+      manageTransactions: true,
+      manageUsers: true,
+    };
+  }
+
+  if (role === "seller") {
+    return {
+      ...EMPTY_PERMISSIONS,
+      viewSales: true,
+      createSales: true,
+    };
+  }
+
+  if (role === "stock") {
+    return {
+      ...EMPTY_PERMISSIONS,
+      viewInventory: true,
+      editInventory: true,
+    };
+  }
+
+  if (role === "finance") {
+    return {
+      ...EMPTY_PERMISSIONS,
+      viewFinance: true,
+      manageTransactions: true,
+    };
+  }
+
+  return { ...EMPTY_PERMISSIONS };
+}
 
 type RawSettingsDoc = Partial<{
   businessName: string;
@@ -185,7 +225,11 @@ function App() {
     return <AuthPage />;
   }
 
-  return <MainApp user={user} />;
+  return (
+    <CompanyProvider>
+      <MainApp user={user} />
+    </CompanyProvider>
+  );
 }
 
 function MainApp({ user }: { user: User }) {
@@ -211,10 +255,6 @@ function MainApp({ user }: { user: User }) {
   const [userPermissions, setUserPermissions] = useState<PermissionSet>(
     ROLE_DEFINITIONS[0].permissions
   );
-  const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
-  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
-  const [rolesLoading, setRolesLoading] = useState(true);
-  const [rolesError, setRolesError] = useState<string | null>(null);
   const [dashboardLayout, setDashboardLayout] = useState<DashboardWidgetConfig[]>(
     getDefaultDashboardLayout()
   );
@@ -224,114 +264,55 @@ function MainApp({ user }: { user: User }) {
   const lowStockAlertedRef = useRef<Set<string>>(new Set());
   const summarySentRef = useRef<string | null>(null);
 
+  const {
+    currentCompanyId,
+    role: companyRole,
+    loading: companyLoading,
+    error: companyError,
+  } = useCompany();
+
   const markSyncCompleted = () => setLastSyncAt(new Date());
 
   useEffect(() => {
-    if (!user) {
-      setUserRole("admin");
-      setUserPermissions(ROLE_DEFINITIONS[0].permissions);
-      setRoleAssignments([]);
-      setUserProfiles([]);
-      setRolesLoading(false);
-      setRolesError(null);
-      return;
-    }
+    const mappedRole: RoleKey =
+      companyRole === "owner" || companyRole === "admin" ? "admin" : "vendedor";
+    setUserRole(mappedRole);
+    setUserPermissions(permissionsFromCompanyRole(companyRole));
+  }, [companyRole]);
 
-    setRolesLoading(true);
-    const roleRef = doc(db, "userRoles", user.uid);
+  const roleAssignments: UserRoleAssignment[] = [];
+  const userProfiles: UserProfile[] = [];
+  const rolesLoading = false;
+  const rolesError: string | null = null;
 
-    const unsubscribe = onSnapshot(
-      roleRef,
-      (snapshot) => {
-        const data = snapshot.data() as
-          | { role?: RoleKey; permissions?: Partial<PermissionSet> }
-          | undefined;
-        const roleKey = data?.role || "admin";
-        const merged = mergePermissions(roleKey, data?.permissions);
-        setUserRole(roleKey);
-        setUserPermissions(merged);
-        setRolesError(null);
-        setRolesLoading(false);
-
-        if (!snapshot.exists()) {
-          setDoc(
-            roleRef,
-            {
-              role: roleKey,
-              permissions: merged,
-              assignedBy: user.uid,
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
-          ).catch((error) => console.error("Error inicializando rol", error));
-        }
-      },
-      (error) => {
-        console.error("Error cargando roles", error);
-        setRolesError("No pudimos cargar tus permisos.");
-        setRolesLoading(false);
-      }
+  if (companyLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-softGray">
+        <p className="text-sm text-gray-600">Cargando empresa...</p>
+      </div>
     );
+  }
 
-    return () => unsubscribe();
-  }, [user]);
+  if (companyError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-softGray">
+        <p className="text-sm text-red-600">{companyError.message}</p>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (!user || !userPermissions.manageUsers) {
-      setRoleAssignments([]);
-      setUserProfiles([]);
-      return;
-    }
-
-    const usersRef = collection(db, "users");
-    const rolesRef = collection(db, "userRoles");
-
-    const unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
-      const profiles: UserProfile[] = snapshot.docs.map((docSnapshot) => {
-        const data = docSnapshot.data() as FirestoreUserData;
-        return {
-          id: docSnapshot.id,
-          nombre: data.nombre,
-          negocio: data.negocio,
-          tamano: data.tamano,
-          email: data.email,
-        };
-      });
-
-      if (!profiles.some((profile) => profile.id === user.uid)) {
-        profiles.push({ id: user.uid, email: user.email || "" });
-      }
-
-      setUserProfiles(profiles);
-    });
-
-    const unsubscribeRoles = onSnapshot(rolesRef, (snapshot) => {
-      const assignments: UserRoleAssignment[] = snapshot.docs.map((docSnapshot) => {
-        const data = docSnapshot.data() as FirestoreRoleData;
-        const roleKey = (data.role as RoleKey) || "admin";
-        const mergedPermissions = mergePermissions(roleKey, data.permissions);
-        return {
-          userId: docSnapshot.id,
-          role: roleKey,
-          permissions: mergedPermissions,
-          assignedBy: data.assignedBy,
-          updatedAt:
-            data.updatedAt instanceof Timestamp
-              ? data.updatedAt.toDate()
-              : data.updatedAt
-              ? new Date(data.updatedAt)
-              : null,
-        };
-      });
-
-      setRoleAssignments(assignments);
-    });
-
-    return () => {
-      unsubscribeUsers();
-      unsubscribeRoles();
-    };
-  }, [user, userPermissions.manageUsers]);
+  if (!currentCompanyId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-softGray">
+        <div className="bg-white rounded-xl p-6 shadow-sm text-center space-y-2">
+          <h2 className="text-lg font-semibold text-primary">Crea tu primera empresa</h2>
+          <p className="text-sm text-gray-600">
+            Necesitas seleccionar o crear una empresa para comenzar a usar SimpliGest.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const allowedPages = useMemo(
     () => getAllowedPagesFromPermissions(userPermissions),
@@ -1115,26 +1096,29 @@ function MainApp({ user }: { user: User }) {
           />
         )}
         {activePage === "configuracion" && (
-          <SettingsPage
-            settings={settings}
-            loading={settingsLoading}
-            saving={settingsSaving}
-            onSave={handleSaveSettings}
-            feedbackMessage={settingsFeedback}
-            errorMessage={settingsError}
-            userEmail={user.email || ""}
-            onSignOut={handleSignOut}
-            roleDefinitions={ROLE_DEFINITIONS}
-            userRoleAssignments={roleAssignments}
-            userProfiles={userProfiles}
-            onUpdateUserRole={handleUpdateUserRole}
-            canManageUsers={userPermissions.manageUsers}
-            currentUserId={user.uid}
-            currentRole={userRole}
-            currentPermissions={userPermissions}
-            rolesError={rolesError}
-            rolesLoading={rolesLoading}
-          />
+          <div className="space-y-6">
+            <SettingsPage
+              settings={settings}
+              loading={settingsLoading}
+              saving={settingsSaving}
+              onSave={handleSaveSettings}
+              feedbackMessage={settingsFeedback}
+              errorMessage={settingsError}
+              userEmail={user.email || ""}
+              onSignOut={handleSignOut}
+              roleDefinitions={ROLE_DEFINITIONS}
+              userRoleAssignments={roleAssignments}
+              userProfiles={userProfiles}
+              onUpdateUserRole={handleUpdateUserRole}
+              canManageUsers={false}
+              currentUserId={user.uid}
+              currentRole={userRole}
+              currentPermissions={userPermissions}
+              rolesError={rolesError}
+              rolesLoading={rolesLoading}
+            />
+            <CompanyMembersPage />
+          </div>
         )}
       </MainLayout>
 

@@ -1,58 +1,47 @@
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwnerField() {
-      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    function isCompanyMember(companyId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.status == 'active';
     }
 
-    function isOwnerResource() {
-      return isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-
-    match /products/{productId} {
-      allow create: if isOwnerField();
-      allow read, update, delete: if isOwnerResource();
-    }
-
-    match /sales/{saleId} {
-      allow create: if isOwnerField();
-      allow read, update, delete: if isOwnerResource();
-    }
-
-    match /transactions/{transactionId} {
-      allow create: if isOwnerField();
-      allow read, update, delete: if isOwnerResource();
-    }
-
-    match /inventories/{inventoryId} {
-      allow create: if isOwnerField();
-      allow read, update, delete: if isOwnerResource();
+    function hasRole(companyId, role) {
+      return isCompanyMember(companyId)
+        && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role == role;
     }
 
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow read, update: if isSignedIn() && request.auth.uid == userId;
     }
 
-    match /userRoles/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
+    match /companies/{companyId} {
+      allow create: if isSignedIn();
+      allow read: if isCompanyMember(companyId);
+      allow update: if hasRole(companyId, 'owner') || hasRole(companyId, 'admin');
 
-    match /invoices/{invoiceId} {
-      allow create: if isOwnerField();
-      allow read, update, delete: if isOwnerResource();
-    }
+      match /members/{memberId} {
+        allow list, read: if hasRole(companyId, 'owner') || hasRole(companyId, 'admin');
+        allow create, update, delete: if hasRole(companyId, 'owner') || hasRole(companyId, 'admin');
+      }
 
-    match /settings/{userId} {
-      allow read, write: if isSignedIn() && userId == request.auth.uid;
-    }
+      match /inventory/{docId} {
+        allow read, write: if isCompanyMember(companyId);
+      }
 
-    match /dashboardLayouts/{userId} {
-      allow read, write: if isSignedIn() && userId == request.auth.uid;
+      match /sales/{docId} {
+        allow read, write: if isCompanyMember(companyId);
+      }
+
+      match /finance/{docId} {
+        allow read, write: if isCompanyMember(companyId);
+      }
     }
   }
 }
