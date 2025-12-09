@@ -7,6 +7,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   serverTimestamp,
@@ -62,6 +63,7 @@ type FirestoreUserData = {
   negocio?: string;
   tamano?: string;
   email?: string;
+  companyId?: string;
 };
 
 type FirestoreRoleData = {
@@ -155,6 +157,7 @@ type RawSettingsDoc = Partial<{
   createdAt: Timestamp | Date | string | number | null;
   updatedAt: Timestamp | Date | string | number | null;
   userId: string;
+  companyId: string;
 }>;
 
 function App() {
@@ -211,6 +214,10 @@ function MainApp({ user }: { user: User }) {
   const [userPermissions, setUserPermissions] = useState<PermissionSet>(
     ROLE_DEFINITIONS[0].permissions
   );
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [companyLoading, setCompanyLoading] = useState(false);
+  const [companyError, setCompanyError] = useState<string | null>(null);
+  const [companyFeedback, setCompanyFeedback] = useState<string | null>(null);
   const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
@@ -223,8 +230,180 @@ function MainApp({ user }: { user: User }) {
   const [dashboardLayoutFeedback, setDashboardLayoutFeedback] = useState<string | null>(null);
   const lowStockAlertedRef = useRef<Set<string>>(new Set());
   const summarySentRef = useRef<string | null>(null);
+  const companyMigrationRef = useRef<string | null>(null);
 
   const markSyncCompleted = () => setLastSyncAt(new Date());
+
+  async function handleChangeCompanyCode(nextCompanyId: string) {
+    if (!user) return;
+
+    const trimmed = nextCompanyId.trim();
+    if (!trimmed) {
+      setCompanyError("Ingresa un código de empresa válido");
+      return;
+    }
+
+    setCompanyLoading(true);
+    setCompanyError(null);
+    try {
+      await Promise.all([
+        setDoc(doc(db, "users", user.uid), { companyId: trimmed }, { merge: true }),
+        setDoc(doc(db, "userRoles", user.uid), { companyId: trimmed }, { merge: true }),
+      ]);
+
+      companyMigrationRef.current = null;
+      setCompanyId(trimmed);
+      setCompanyFeedback("Código de empresa actualizado. Sincronizando datos compartidos...");
+    } catch (error) {
+      console.error("Error actualizando código de empresa", error);
+      setCompanyError("No pudimos actualizar tu empresa. Inténtalo nuevamente.");
+    } finally {
+      setCompanyLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!user) {
+      setCompanyId(null);
+      setCompanyError(null);
+      setCompanyLoading(false);
+      return;
+    }
+
+    let active = true;
+    async function resolveCompanyId() {
+      setCompanyLoading(true);
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnapshot = await getDoc(userRef);
+        const data = userSnapshot.data() as FirestoreUserData | undefined;
+        const resolvedCompanyId = (data?.companyId || user.uid).trim();
+
+        if (!data?.companyId) {
+          await setDoc(
+            userRef,
+            {
+              companyId: resolvedCompanyId,
+              email: user.email || data?.email,
+              nombre: data?.nombre,
+              negocio: data?.negocio,
+              tamano: data?.tamano,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+
+        if (active) {
+          setCompanyId(resolvedCompanyId);
+          setCompanyError(null);
+          setCompanyFeedback(null);
+        }
+      } catch (error) {
+        console.error("No pudimos resolver la empresa activa", error);
+        if (active) {
+          setCompanyError("No pudimos cargar tu empresa");
+        }
+      } finally {
+        if (active) {
+          setCompanyLoading(false);
+        }
+      }
+    }
+
+    resolveCompanyId();
+
+    return () => {
+      active = false;
+    };
+  }, [companyId, user]);
+
+  useEffect(() => {
+    if (!user || !companyId) {
+      return;
+    }
+
+    if (companyMigrationRef.current === companyId) {
+      return;
+    }
+
+    companyMigrationRef.current = companyId;
+
+    async function backfillCollection(collectionName: string) {
+      const snapshot = await getDocs(query(collection(db, collectionName), where("userId", "==", user.uid)));
+      const updates = snapshot.docs
+        .filter((docSnapshot) => {
+          const data = docSnapshot.data() as { companyId?: string };
+          return !data.companyId;
+        })
+        .map((docSnapshot) => updateDoc(docSnapshot.ref, { companyId }));
+
+      await Promise.all(updates);
+    }
+
+    async function migrateSettingsAndLayout() {
+      const companySettingsRef = doc(db, "settings", companyId);
+      const personalSettingsRef = doc(db, "settings", user.uid);
+      const [companySettings, personalSettings] = await Promise.all([
+        getDoc(companySettingsRef),
+        getDoc(personalSettingsRef),
+      ]);
+
+      if (!companySettings.exists()) {
+        const settingsPayload = personalSettings.exists()
+          ? personalSettings.data()
+          : buildDefaultSettingsDoc(user.email || "", user.uid);
+
+        await setDoc(
+          companySettingsRef,
+          { ...settingsPayload, companyId, userId: user.uid },
+          { merge: true }
+        );
+      } else if (!companySettings.data()?.companyId) {
+        await updateDoc(companySettingsRef, { companyId });
+      }
+
+      if (companySettingsRef.id !== personalSettingsRef.id && personalSettings.exists()) {
+        await setDoc(
+          personalSettingsRef,
+          { ...personalSettings.data(), companyId, userId: user.uid },
+          { merge: true }
+        );
+      }
+
+      const companyLayoutRef = doc(db, "dashboardLayouts", companyId);
+      const personalLayoutRef = doc(db, "dashboardLayouts", user.uid);
+      const [companyLayout, personalLayout] = await Promise.all([
+        getDoc(companyLayoutRef),
+        getDoc(personalLayoutRef),
+      ]);
+
+      if (!companyLayout.exists() && personalLayout.exists()) {
+        await setDoc(
+          companyLayoutRef,
+          { ...personalLayout.data(), companyId, userId: user.uid },
+          { merge: true }
+        );
+      } else if (companyLayout.exists() && !companyLayout.data()?.companyId) {
+        await updateDoc(companyLayoutRef, { companyId });
+      }
+    }
+
+    (async () => {
+      try {
+        await Promise.all([
+          backfillCollection("products"),
+          backfillCollection("sales"),
+          backfillCollection("transactions"),
+          backfillCollection("invoices"),
+          setDoc(doc(db, "userRoles", user.uid), { companyId }, { merge: true }),
+        ]);
+        await migrateSettingsAndLayout();
+      } catch (error) {
+        console.error("Error migrando datos a empresa", error);
+      }
+    })();
+  }, [companyId, user]);
 
   useEffect(() => {
     if (!user) {
@@ -261,9 +440,14 @@ function MainApp({ user }: { user: User }) {
               permissions: merged,
               assignedBy: user.uid,
               updatedAt: serverTimestamp(),
+              companyId,
             },
             { merge: true }
           ).catch((error) => console.error("Error inicializando rol", error));
+        } else if (companyId && !data?.companyId) {
+          updateDoc(roleRef, { companyId }).catch((error) =>
+            console.error("Error actualizando empresa en rol", error)
+          );
         }
       },
       (error) => {
@@ -274,17 +458,18 @@ function MainApp({ user }: { user: User }) {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [companyId, user]);
 
   useEffect(() => {
-    if (!user || !userPermissions.manageUsers) {
+    if (!user || !userPermissions.manageUsers || !companyId) {
       setRoleAssignments([]);
       setUserProfiles([]);
+      setRolesLoading(false);
       return;
     }
 
-    const usersRef = collection(db, "users");
-    const rolesRef = collection(db, "userRoles");
+    const usersRef = query(collection(db, "users"), where("companyId", "==", companyId));
+    const rolesRef = query(collection(db, "userRoles"), where("companyId", "==", companyId));
 
     const unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
       const profiles: UserProfile[] = snapshot.docs.map((docSnapshot) => {
@@ -295,11 +480,12 @@ function MainApp({ user }: { user: User }) {
           negocio: data.negocio,
           tamano: data.tamano,
           email: data.email,
+          companyId: data.companyId,
         };
       });
 
       if (!profiles.some((profile) => profile.id === user.uid)) {
-        profiles.push({ id: user.uid, email: user.email || "" });
+        profiles.push({ id: user.uid, email: user.email || "", companyId });
       }
 
       setUserProfiles(profiles);
@@ -331,7 +517,7 @@ function MainApp({ user }: { user: User }) {
       unsubscribeUsers();
       unsubscribeRoles();
     };
-  }, [user, userPermissions.manageUsers]);
+  }, [companyId, user, userPermissions.manageUsers]);
 
   const allowedPages = useMemo(
     () => getAllowedPagesFromPermissions(userPermissions),
@@ -348,14 +534,14 @@ function MainApp({ user }: { user: User }) {
   }, [activePage, allowedPages]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !companyId) {
       setProducts([]);
       setLoadingProducts(false);
       return;
     }
 
     setLoadingProducts(true);
-    const q = query(collection(db, "products"), where("userId", "==", user.uid));
+    const q = query(collection(db, "products"), where("companyId", "==", companyId));
 
     const unsubscribe = onSnapshot(
       q,
@@ -396,7 +582,7 @@ function MainApp({ user }: { user: User }) {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [companyId, user]);
 
   useEffect(() => {
     if (!settings?.whatsappEnabled || !settings.alertStockEnabled) {
@@ -423,17 +609,14 @@ function MainApp({ user }: { user: User }) {
   }, [products, settings]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !companyId) {
       setSales([]);
       setLoadingSales(false);
       return;
     }
 
     setLoadingSales(true);
-    const salesQuery = query(
-      collection(db, "sales"),
-      where("userId", "==", user.uid)
-    );
+    const salesQuery = query(collection(db, "sales"), where("companyId", "==", companyId));
 
     const unsubscribe = onSnapshot(
       salesQuery,
@@ -470,17 +653,17 @@ function MainApp({ user }: { user: User }) {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [companyId, user]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !companyId) {
       setDashboardLayout(getDefaultDashboardLayout());
       setDashboardLayoutLoading(false);
       setDashboardLayoutFeedback(null);
       return;
     }
 
-    const layoutRef = doc(db, "dashboardLayouts", user.uid);
+    const layoutRef = doc(db, "dashboardLayouts", companyId);
     setDashboardLayoutLoading(true);
 
     const unsubscribe = onSnapshot(
@@ -494,6 +677,7 @@ function MainApp({ user }: { user: User }) {
               layout: defaultLayout,
               updatedAt: serverTimestamp(),
               userId: user.uid,
+              companyId,
             });
             setDashboardLayoutLoading(false);
             return;
@@ -520,10 +704,10 @@ function MainApp({ user }: { user: User }) {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [companyId, user]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !companyId) {
       setTransactions([]);
       setLoadingTransactions(false);
       setSettings(null);
@@ -537,7 +721,7 @@ function MainApp({ user }: { user: User }) {
     setLoadingTransactions(true);
     const transactionsQuery = query(
       collection(db, "transactions"),
-      where("userId", "==", user.uid)
+      where("companyId", "==", companyId)
     );
 
     const unsubscribe = onSnapshot(
@@ -579,16 +763,18 @@ function MainApp({ user }: { user: User }) {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [companyId, user]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !companyId) {
+      setSettings(null);
+      setSettingsLoading(false);
       return;
     }
 
     const currentUser = user;
     setSettingsLoading(true);
-    const settingsRef = doc(db, "settings", currentUser.uid);
+    const settingsRef = doc(db, "settings", companyId);
     let unsubscribe: (() => void) | null = null;
 
     async function bootstrapSettings() {
@@ -597,7 +783,10 @@ function MainApp({ user }: { user: User }) {
         if (!existing.exists()) {
           await setDoc(
             settingsRef,
-            buildDefaultSettingsDoc(currentUser.email || "", currentUser.uid)
+            {
+              ...buildDefaultSettingsDoc(currentUser.email || "", currentUser.uid),
+              companyId,
+            }
           );
         }
 
@@ -630,7 +819,7 @@ function MainApp({ user }: { user: User }) {
         unsubscribe();
       }
     };
-  }, [user]);
+  }, [companyId, user]);
 
   useEffect(() => {
     const theme = settings?.uiTheme ?? "light";
@@ -680,6 +869,9 @@ function MainApp({ user }: { user: User }) {
     if (!user) {
       throw new Error("Usuario no autenticado");
     }
+    if (!companyId) {
+      throw new Error("No hay empresa activa");
+    }
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
     }
@@ -704,6 +896,7 @@ function MainApp({ user }: { user: User }) {
         proveedor: payload.supplier,
         createdAt: createdAtValue,
         userId: user.uid,
+        companyId,
       });
 
       console.info("Producto guardado en Firestore", { id: docRef.id });
@@ -716,6 +909,9 @@ function MainApp({ user }: { user: User }) {
   async function handleUpdateProduct(id: string, payload: ProductPayload) {
     if (!user) {
       throw new Error("Usuario no autenticado");
+    }
+    if (!companyId) {
+      throw new Error("No hay empresa activa");
     }
     if (!userPermissions.editInventory) {
       throw new Error("No tienes permisos para modificar el inventario");
@@ -737,6 +933,7 @@ function MainApp({ user }: { user: User }) {
         supplier: payload.supplier,
         proveedor: payload.supplier,
         userId: user.uid,
+        companyId,
       });
 
       console.info("Producto actualizado en Firestore", { id });
@@ -768,6 +965,9 @@ function MainApp({ user }: { user: User }) {
     if (!user) {
       throw new Error("Usuario no autenticado");
     }
+    if (!companyId) {
+      throw new Error("No hay empresa activa");
+    }
     if (!userPermissions.createSales) {
       throw new Error("No tienes permisos para registrar ventas");
     }
@@ -796,6 +996,7 @@ function MainApp({ user }: { user: User }) {
         total,
         date: serverTimestamp(),
         userId: user.uid,
+        companyId,
       });
 
       console.info("Venta guardada en Firestore", { id: docRef.id });
@@ -814,6 +1015,9 @@ function MainApp({ user }: { user: User }) {
     if (!user) {
       throw new Error("Usuario no autenticado");
     }
+    if (!companyId) {
+      throw new Error("No hay empresa activa");
+    }
     if (!userPermissions.manageTransactions) {
       throw new Error("No tienes permisos para registrar movimientos");
     }
@@ -829,6 +1033,7 @@ function MainApp({ user }: { user: User }) {
         category: payload.category,
         date: dateValue,
         userId: user.uid,
+        companyId,
       });
 
       console.info("Movimiento guardado en Firestore", { id: docRef.id });
@@ -841,6 +1046,9 @@ function MainApp({ user }: { user: User }) {
   async function handleProcessInvoice(invoice: InvoiceRecord) {
     if (!user) {
       throw new Error("Usuario no autenticado");
+    }
+    if (!companyId) {
+      throw new Error("No hay empresa activa");
     }
     if (!userPermissions.manageTransactions) {
       throw new Error("No tienes permisos para procesar facturas");
@@ -867,6 +1075,7 @@ function MainApp({ user }: { user: User }) {
         category: "Factura proveedor",
         date: Timestamp.fromDate(issueDate),
         userId: user.uid,
+        companyId,
       });
 
       console.info("Gasto de factura guardado en Firestore", { id: transactionRef.id });
@@ -886,6 +1095,7 @@ function MainApp({ user }: { user: User }) {
               purchasePrice: unitPrice || existing.purchasePrice,
               supplier: invoice.supplier || existing.supplier,
               proveedor: invoice.supplier || existing.supplier,
+              companyId,
             });
           } else {
             const docRef = await addDoc(collection(db, "products"), {
@@ -902,6 +1112,7 @@ function MainApp({ user }: { user: User }) {
               proveedor: invoice.supplier,
               createdAt: Timestamp.fromDate(issueDate),
               userId: user.uid,
+              companyId,
             });
 
             console.info("Producto creado desde factura", { id: docRef.id });
@@ -923,6 +1134,7 @@ function MainApp({ user }: { user: User }) {
         validationWarnings: invoice.validationWarnings || [],
         createdAt: serverTimestamp(),
         userId: user.uid,
+        companyId,
       });
 
       console.info("Factura almacenada en Firestore", { id: invoiceRef.id });
@@ -933,17 +1145,18 @@ function MainApp({ user }: { user: User }) {
   }
 
   async function handleSaveSettings(payload: Partial<BusinessSettings>) {
-    if (!user) {
+    if (!user || !companyId) {
       return;
     }
     setSettingsSaving(true);
     setSettingsError(null);
     try {
-      const settingsRef = doc(db, "settings", user.uid);
+      const settingsRef = doc(db, "settings", companyId);
       await updateDoc(settingsRef, {
         ...payload,
         categories: payload.categories ?? settings?.categories ?? [],
         updatedAt: serverTimestamp(),
+        companyId,
       });
 
       console.info("Configuración actualizada en Firestore", { id: settingsRef.id });
@@ -963,15 +1176,15 @@ function MainApp({ user }: { user: User }) {
   }
 
   async function handleSaveDashboardLayout(nextLayout?: DashboardWidgetConfig[]) {
-    if (!user) return;
+    if (!user || !companyId) return;
     setDashboardLayoutSaving(true);
     setDashboardLayoutFeedback(null);
     const layoutToSave = normalizeLayout(nextLayout ?? dashboardLayout);
     try {
-      const layoutRef = doc(db, "dashboardLayouts", user.uid);
+      const layoutRef = doc(db, "dashboardLayouts", companyId);
       await setDoc(
         layoutRef,
-        { layout: layoutToSave, updatedAt: serverTimestamp(), userId: user.uid },
+        { layout: layoutToSave, updatedAt: serverTimestamp(), userId: user.uid, companyId },
         { merge: true }
       );
       setDashboardLayoutFeedback("Diseño guardado. Se cargará al volver a ingresar.");
@@ -1002,14 +1215,14 @@ function MainApp({ user }: { user: User }) {
     role: RoleKey,
     permissions: PermissionSet
   ) {
-    if (!user || !userPermissions.manageUsers) {
+    if (!user || !userPermissions.manageUsers || !companyId) {
       throw new Error("No tienes permisos para asignar roles");
     }
 
     try {
       await setDoc(
         doc(db, "userRoles", userId),
-        { role, permissions, updatedAt: serverTimestamp(), assignedBy: user.uid },
+        { role, permissions, updatedAt: serverTimestamp(), assignedBy: user.uid, companyId },
         { merge: true }
       );
     } catch (error) {
@@ -1134,6 +1347,11 @@ function MainApp({ user }: { user: User }) {
             currentPermissions={userPermissions}
             rolesError={rolesError}
             rolesLoading={rolesLoading}
+            companyId={companyId}
+            companyLoading={companyLoading}
+            companyError={companyError}
+            companyFeedback={companyFeedback}
+            onChangeCompanyId={handleChangeCompanyCode}
           />
         )}
       </MainLayout>
