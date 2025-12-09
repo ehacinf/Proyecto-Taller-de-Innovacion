@@ -48,14 +48,7 @@ export default function AIPanel({
 
   const lastSyncLabel = useMemo(() => {
     if (!lastSyncAt) return "Sincronizando en segundo plano";
-    const diffMinutes = Math.max(
-      0,
-      Math.round((Date.now() - lastSyncAt.getTime()) / 60000)
-    );
-    if (diffMinutes < 2) return "Datos frescos (hace menos de 2 min)";
-    if (diffMinutes < 60) return `Actualizado hace ${diffMinutes} min`;
-    const hours = Math.round(diffMinutes / 60);
-    return `Actualizado hace ${hours} h`;
+    return `Última sincronización: ${lastSyncAt.toLocaleString()}`;
   }, [lastSyncAt]);
 
   const windowStart = useMemo(() => {
@@ -108,11 +101,157 @@ export default function AIPanel({
     );
   }, [transactions]);
 
+  const hygieneFindings = useMemo(() => {
+    const missingPrice = products
+      .filter((product) => !product.salePrice || product.salePrice <= 0)
+      .slice(0, 3);
+    const missingCategory = products
+      .filter((product) => !product.category && !product.categoria)
+      .slice(0, 3);
+    const zeroStock = products.filter((product) => product.stock === 0).slice(0, 3);
+
+    return {
+      missingPrice,
+      missingCategory,
+      zeroStock,
+    };
+  }, [products]);
+
   const opportunities = useMemo(() => {
     return insights
       .filter((insight) => Math.abs(insight.priceRecommendation.variationPercentage) >= 8)
       .slice(0, 4);
   }, [insights]);
+
+  const slowMovers = useMemo(() => {
+    const window30d = new Date();
+    window30d.setDate(window30d.getDate() - 30);
+    const soldIds = new Set(
+      sales
+        .filter((sale) => sale.date >= window30d)
+        .map((sale) => sale.productId)
+    );
+
+    return products
+      .filter((product) => !soldIds.has(product.id))
+      .slice(0, 3);
+  }, [products, sales]);
+
+  const guidanceSteps = useMemo(() => {
+    const steps = [
+      "1) Revisa que cada producto tenga precio y stock visible.",
+      "2) Anota las ventas del día con el botón Vender Rápido.",
+      "3) Cierra caja: registra ingresos y egresos en Finanzas.",
+      "4) Activa alertas de stock para no quedarte sin tus favoritos.",
+    ];
+
+    if (lowStockProducts.length > 0) {
+      steps.unshift(
+        `⚠️ Hay ${lowStockProducts.length} productos con stock bajo. Repón o limita ventas antes de que se agoten.`
+      );
+    }
+
+    if (hygieneFindings.missingPrice.length > 0) {
+      steps.unshift("Corrige precios vacíos para que el sistema calcule márgenes.");
+    }
+
+    return steps.slice(0, 5);
+  }, [hygieneFindings.missingPrice.length, lowStockProducts.length]);
+
+  const correctionTips = useMemo(() => {
+    const tips: string[] = [];
+
+    if (hygieneFindings.missingPrice.length) {
+      tips.push(
+        "Algunos productos no tienen precio de venta. Agrégalo para evitar ventas con valor cero y mantener márgenes claros."
+      );
+    }
+
+    if (hygieneFindings.zeroStock.length) {
+      tips.push(
+        "Detectamos productos con stock en cero. Puedes pausar su venta o activar preventa para no perder pedidos."
+      );
+    }
+
+    if (hygieneFindings.missingCategory.length) {
+      tips.push(
+        "Hay fichas sin categoría. Asignar una ayuda a ordenar reportes y sugerencias automáticas."
+      );
+    }
+
+    return tips;
+  }, [hygieneFindings]);
+
+  const conceptNotes = useMemo(
+    () => [
+      "Stock mínimo: es la cantidad de seguridad para no quedar en cero. Si llegas a ese número, repón o frena descuentos.",
+      "Margen sano: precio de venta menos costo. Manténlo positivo para financiar envíos y campañas.",
+      "Rotación: productos que se venden poco inmovilizan caja. Úsalos en kits o promociones rápidas.",
+    ],
+    []
+  );
+
+  const preventiveAlerts = useMemo(() => {
+    const alerts: string[] = [];
+
+    if (cashBalance < 0) {
+      alerts.push(
+        "El saldo de caja está en negativo. Revisa egresos grandes o aplaza compras hasta equilibrar."
+      );
+    }
+
+    if (lowStockProducts.length > 0) {
+      alerts.push(
+        "Hay riesgo de quiebre de stock. Envía un aviso a clientes con tiempos de reposición claros."
+      );
+    }
+
+    if (slowMovers.length > 0) {
+      alerts.push(
+        "Tienes productos con pocas salidas este mes. Muéstralos en combos o con envío gratis limitado."
+      );
+    }
+
+    return alerts;
+  }, [cashBalance, lowStockProducts.length, slowMovers.length]);
+
+  const decisionMoves = useMemo(() => {
+    const moves: { title: string; reason: string; action: string }[] = [];
+
+    if (opportunities.length) {
+      moves.push({
+        title: "Ajusta precios sugeridos",
+        reason: "La IA detectó variaciones relevantes en demanda y margen.",
+        action: "Actualiza la lista con el precio recomendado para mantener coherencia entre tienda y web.",
+      });
+    }
+
+    if (slowMovers.length) {
+      moves.push({
+        title: "Mueve inventario lento",
+        reason: "Algunos productos no registran ventas en 30 días.",
+        action: "Crea un pack con el más vendido o aplica un descuento corto con tope de stock para medir interés.",
+      });
+    }
+
+    if (hygieneFindings.zeroStock.length > 2) {
+      moves.push({
+        title: "Prioriza reposición",
+        reason: "Varias fichas quedaron en cero stock.",
+        action: "Compra solo lo imprescindible y activa lista de espera para capturar correos sin prometer entregas irreales.",
+      });
+    }
+
+    if (cashBalance > 0 && bestSeller) {
+      moves.push({
+        title: "Invierte en tu producto estrella",
+        reason: `${bestSeller.name} concentra demanda reciente.`,
+        action: "Reinvierta una parte del saldo de caja en inventario y anuncios simples destacando envío rápido.",
+      });
+    }
+
+    return moves;
+  }, [bestSeller, cashBalance, hygieneFindings.zeroStock.length, opportunities.length, slowMovers.length]);
 
   const webCopies = useMemo(() => {
     const heroProduct = bestSeller ?? products[0];
@@ -262,6 +401,94 @@ export default function AIPanel({
               ))}
             </div>
           )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-primary">Guía inteligente</h3>
+              <span className="text-[11px] text-gray-500">Pasos claros</span>
+            </div>
+            <ul className="space-y-2 text-sm text-gray-700 list-disc list-inside">
+              {guidanceSteps.map((step) => (
+                <li key={step} className="leading-relaxed">
+                  {step}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-primary">Corrección amable</h3>
+              <span className="text-[11px] text-gray-500">Errores y solución</span>
+            </div>
+            {correctionTips.length === 0 ? (
+              <p className="text-sm text-gray-600">Sin errores visibles. Sigue cargando datos y la IA los mantendrá limpios.</p>
+            ) : (
+              <ul className="space-y-2 text-sm text-gray-700 list-disc list-inside">
+                {correctionTips.map((tip) => (
+                  <li key={tip} className="leading-relaxed">
+                    {tip}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-primary">Conceptos clave</h3>
+              <span className="text-[11px] text-gray-500">Explicados simple</span>
+            </div>
+            <ul className="space-y-2 text-sm text-gray-700 list-disc list-inside">
+              {conceptNotes.map((note) => (
+                <li key={note} className="leading-relaxed">
+                  {note}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-primary">Alertas preventivas</h3>
+              <span className="text-[11px] text-gray-500">Nos adelantamos</span>
+            </div>
+            {preventiveAlerts.length === 0 ? (
+              <p className="text-sm text-gray-600">Todo en orden. Seguimos monitoreando riesgos antes de que aparezcan.</p>
+            ) : (
+              <ul className="space-y-2 text-sm text-gray-700 list-disc list-inside">
+                {preventiveAlerts.map((alert) => (
+                  <li key={alert} className="leading-relaxed">
+                    {alert}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3 border border-gray-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-primary">Decisiones propuestas</h3>
+              <span className="text-[11px] text-gray-500">Con explicación</span>
+            </div>
+            {decisionMoves.length === 0 ? (
+              <p className="text-sm text-gray-600">Aún sin decisiones críticas. La IA sugerirá ajustes cuando vea oportunidad.</p>
+            ) : (
+              <div className="space-y-3">
+                {decisionMoves.map((move) => (
+                  <div key={move.title} className="border border-gray-200 rounded-2xl p-3 bg-softGray/40">
+                    <p className="text-sm font-semibold text-primary">{move.title}</p>
+                    <p className="text-xs text-gray-600">{move.reason}</p>
+                    <p className="text-xs text-gray-700 mt-1">{move.action}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
