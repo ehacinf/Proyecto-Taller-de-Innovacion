@@ -37,14 +37,22 @@ export function buildWeeklySalesSeries(sales: Sale[]) {
   const days = 7;
   const data: { label: string; value: number }[] = [];
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const getDateKey = (date: Date) => {
+    const normalized = new Date(date);
+    normalized.setHours(0, 0, 0, 0);
+    return normalized.toISOString().slice(0, 10);
+  };
 
   for (let i = days - 1; i >= 0; i -= 1) {
     const date = new Date(today);
     date.setDate(today.getDate() - i);
     const label = date.toLocaleDateString("es-CL", { weekday: "short" });
+    const dateKey = getDateKey(date);
     const total = sales
-      .filter((sale) => sale.date.toDateString() === date.toDateString())
-      .reduce((acc, sale) => acc + sale.total, 0);
+      .filter((sale) => getDateKey(sale.date) === dateKey)
+      .reduce((acc, sale) => acc + (Number.isFinite(sale.total) ? sale.total : 0), 0);
 
     data.push({ label, value: total });
   }
