@@ -35,6 +35,11 @@ export type SettingsPageProps = {
   currentPermissions: PermissionSet;
   rolesError?: string | null;
   rolesLoading: boolean;
+  companyId: string | null;
+  companyLoading: boolean;
+  companyError?: string | null;
+  companyFeedback?: string | null;
+  onChangeCompanyId: (nextCompanyId: string) => Promise<void>;
 };
 
 type FormState = {
@@ -134,6 +139,11 @@ const SettingsPage = ({
   currentPermissions,
   rolesError,
   rolesLoading,
+  companyId,
+  companyLoading,
+  companyError,
+  companyFeedback,
+  onChangeCompanyId,
 }: SettingsPageProps) => {
   const [formState, setFormState] = useState<FormState>(() => buildFormState(settings, userEmail));
   const [newCategory, setNewCategory] = useState("");
@@ -141,6 +151,7 @@ const SettingsPage = ({
   const [roleSavingId, setRoleSavingId] = useState<string | null>(null);
   const [roleMessage, setRoleMessage] = useState<string | null>(null);
   const [roleErrorMessage, setRoleErrorMessage] = useState<string | null>(null);
+  const [companyCode, setCompanyCode] = useState(companyId ?? "");
 
   const assignmentsByUser = useMemo(() => {
     const map = new Map<string, UserRoleAssignment>();
@@ -153,6 +164,10 @@ const SettingsPage = ({
   useEffect(() => {
     setFormState(buildFormState(settings, userEmail));
   }, [settings, userEmail]);
+
+  useEffect(() => {
+    setCompanyCode(companyId ?? "");
+  }, [companyId]);
 
   useEffect(() => {
     const nextRoles: Record<string, { role: RoleKey; permissions: PermissionSet }> = {};
@@ -305,6 +320,50 @@ const SettingsPage = ({
           {feedbackMessage && <p className="text-xs text-green-600">{feedbackMessage}</p>}
         </div>
       </div>
+
+      <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary">Colaboración</p>
+          <h3 className="text-lg font-semibold text-primary">Código de empresa</h3>
+          <p className="text-xs text-gray-500">
+            Comparte este código con tu equipo para que trabajen con los mismos inventarios y finanzas. Si recibes uno,
+            actualízalo aquí para unirte a la empresa correcta.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs items-end">
+          <label className="flex flex-col gap-2">
+            <span className="text-gray-600">Código actual</span>
+            <input
+              type="text"
+              value={companyCode}
+              onChange={(event) => setCompanyCode(event.target.value)}
+              className="px-3 py-2 rounded-xl border border-gray-200"
+              placeholder="Ej: mi-empresa"
+              disabled={companyLoading}
+            />
+            <p className="text-[11px] text-gray-500">
+              Usa el mismo código en todas las cuentas que pertenezcan a la empresa.
+            </p>
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => onChangeCompanyId(companyCode)}
+              disabled={companyLoading || !companyCode.trim()}
+              className="bg-primary text-white px-4 py-2 rounded-xl text-xs hover:opacity-90 disabled:opacity-50"
+            >
+              {companyLoading ? "Guardando..." : "Actualizar código"}
+            </button>
+            {companyId && (
+              <span className="px-3 py-2 rounded-xl bg-softGray text-[11px] text-gray-600 border border-gray-200">
+                Empresa activa: {companyId}
+              </span>
+            )}
+          </div>
+        </div>
+        {companyError && <p className="text-xs text-red-500">{companyError}</p>}
+        {companyFeedback && <p className="text-xs text-green-600">{companyFeedback}</p>}
+      </section>
 
       <section className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
         <div>

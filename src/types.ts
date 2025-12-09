@@ -45,6 +45,7 @@ export type UserProfile = {
   negocio?: string;
   tamano?: string;
   email?: string;
+  companyId?: string;
 };
 
 export type AlertLevel = "estricto" | "normal" | "relajado";
