@@ -101,7 +101,8 @@ export type Product = {
   salePrice: number;
   supplier?: string;
   createdAt?: Date | null;
-  userId: string;
+  companyId: string;
+  createdBy?: string;
 };
 
 export type ProductPayload = {
@@ -114,7 +115,6 @@ export type ProductPayload = {
   salePrice: number;
   supplier: string;
   createdAt?: Date | null;
-  userId: string;
 };
 
 export type PriceRecommendation = {
