@@ -109,6 +109,7 @@ export function getAllowedPagesFromPermissions(permissions: PermissionSet): Set<
   const allowed: Set<ActivePage> = new Set([
     "inicio",
     "dashboard",
+    "panelIA",
     "configuracion",
   ]);
 

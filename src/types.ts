@@ -1,6 +1,7 @@
 export type ActivePage =
   | "inicio"
   | "dashboard"
+  | "panelIA"
   | "inventario"
   | "finanzas"
   | "reportes"

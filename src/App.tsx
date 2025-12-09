@@ -25,6 +25,7 @@ import QuickSaleModal from "./components/Sales/QuickSaleModal";
 import FinancePage from "./components/Finance/FinancePage";
 import SettingsPage from "./components/Settings/SettingsPage";
 import ReportsPage from "./components/Reports/ReportsPage";
+import AIPanel from "./components/AI/AIPanel";
 import type {
   ActivePage,
   BusinessSettings,
@@ -1287,6 +1288,19 @@ function MainApp({ user }: { user: User }) {
             savingLayout={dashboardLayoutSaving}
             layoutLoading={dashboardLayoutLoading}
             layoutFeedback={dashboardLayoutFeedback}
+          />
+        )}
+        {activePage === "panelIA" && (
+          <AIPanel
+            products={products}
+            sales={sales}
+            transactions={transactions}
+            insights={productInsights}
+            settings={settings}
+            loadingSales={loadingSales}
+            loadingProducts={loadingProducts}
+            loadingTransactions={loadingTransactions}
+            lastSyncAt={lastSyncAt}
           />
         )}
         {activePage === "inventario" && (

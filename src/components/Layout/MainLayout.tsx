@@ -24,6 +24,10 @@ const pageDescriptions: Record<ActivePage, { title: string; subtitle: string }> 
     title: "Dashboard General",
     subtitle: "Controla inventario, finanzas y ventas desde un solo lugar.",
   },
+  panelIA: {
+    title: "Copiloto de IA",
+    subtitle: "Obtén sugerencias accionables basadas en tus ventas y catálogo.",
+  },
   inventario: {
     title: "Inventario",
     subtitle: "Administra tus productos, stock y proveedores.",
@@ -45,10 +49,10 @@ const pageDescriptions: Record<ActivePage, { title: string; subtitle: string }> 
 const menuItems: { label: string; page?: ActivePage }[] = [
   { label: "Inicio", page: "inicio" },
   { label: "Dashboard", page: "dashboard" },
+  { label: "Panel de IA", page: "panelIA" },
   { label: "Inventario", page: "inventario" },
   { label: "Finanzas", page: "finanzas" },
   { label: "Ventas (POS)" },
-  { label: "Panel de IA" },
   { label: "Reportes automáticos", page: "reportes" },
   { label: "Usuarios & Roles" },
   { label: "Configuración", page: "configuracion" },
@@ -67,7 +71,9 @@ const MainLayout = ({
   children,
 }: MainLayoutProps) => {
   const { title, subtitle } = pageDescriptions[activePage];
-  const pageSet = allowedPages ?? new Set<ActivePage>(["inicio", "dashboard", "inventario", "finanzas", "reportes", "configuracion"]);
+  const pageSet =
+    allowedPages ??
+    new Set<ActivePage>(["inicio", "dashboard", "panelIA", "inventario", "finanzas", "reportes", "configuracion"]);
   const filteredMenu = menuItems.filter((item) =>
     item.page ? pageSet.has(item.page) : true
   );
