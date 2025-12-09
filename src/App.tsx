@@ -71,6 +71,7 @@ type FirestoreRoleData = {
   permissions?: Partial<PermissionSet>;
   assignedBy?: string;
   updatedAt?: Timestamp | Date | string | number | null;
+  companyId?: string;
 };
 
 type FirestoreProductData = {
@@ -90,6 +91,8 @@ type FirestoreProductData = {
   supplier?: string;
   proveedor?: string;
   createdAt?: Timestamp | Date | string | number | null;
+  companyId?: string;
+  createdBy?: string;
   userId?: string;
 };
 
@@ -323,6 +326,8 @@ function MainApp({ user }: { user: User }) {
       return;
     }
 
+    const activeCompanyId = companyId;
+
     if (companyMigrationRef.current === companyId) {
       return;
     }
@@ -336,13 +341,13 @@ function MainApp({ user }: { user: User }) {
           const data = docSnapshot.data() as { companyId?: string };
           return !data.companyId;
         })
-        .map((docSnapshot) => updateDoc(docSnapshot.ref, { companyId }));
+        .map((docSnapshot) => updateDoc(docSnapshot.ref, { companyId: activeCompanyId }));
 
       await Promise.all(updates);
     }
 
     async function migrateSettingsAndLayout() {
-      const companySettingsRef = doc(db, "settings", companyId);
+      const companySettingsRef = doc(db, "settings", activeCompanyId);
       const personalSettingsRef = doc(db, "settings", user.uid);
       const [companySettings, personalSettings] = await Promise.all([
         getDoc(companySettingsRef),
@@ -356,22 +361,22 @@ function MainApp({ user }: { user: User }) {
 
         await setDoc(
           companySettingsRef,
-          { ...settingsPayload, companyId, userId: user.uid },
+          { ...settingsPayload, companyId: activeCompanyId, userId: user.uid },
           { merge: true }
         );
       } else if (!companySettings.data()?.companyId) {
-        await updateDoc(companySettingsRef, { companyId });
+        await updateDoc(companySettingsRef, { companyId: activeCompanyId });
       }
 
       if (companySettingsRef.id !== personalSettingsRef.id && personalSettings.exists()) {
         await setDoc(
           personalSettingsRef,
-          { ...personalSettings.data(), companyId, userId: user.uid },
+          { ...personalSettings.data(), companyId: activeCompanyId, userId: user.uid },
           { merge: true }
         );
       }
 
-      const companyLayoutRef = doc(db, "dashboardLayouts", companyId);
+      const companyLayoutRef = doc(db, "dashboardLayouts", activeCompanyId);
       const personalLayoutRef = doc(db, "dashboardLayouts", user.uid);
       const [companyLayout, personalLayout] = await Promise.all([
         getDoc(companyLayoutRef),
@@ -381,11 +386,11 @@ function MainApp({ user }: { user: User }) {
       if (!companyLayout.exists() && personalLayout.exists()) {
         await setDoc(
           companyLayoutRef,
-          { ...personalLayout.data(), companyId, userId: user.uid },
+          { ...personalLayout.data(), companyId: activeCompanyId, userId: user.uid },
           { merge: true }
         );
       } else if (companyLayout.exists() && !companyLayout.data()?.companyId) {
-        await updateDoc(companyLayoutRef, { companyId });
+        await updateDoc(companyLayoutRef, { companyId: activeCompanyId });
       }
     }
 
@@ -422,9 +427,7 @@ function MainApp({ user }: { user: User }) {
     const unsubscribe = onSnapshot(
       roleRef,
       (snapshot) => {
-        const data = snapshot.data() as
-          | { role?: RoleKey; permissions?: Partial<PermissionSet> }
-          | undefined;
+        const data = snapshot.data() as FirestoreRoleData | undefined;
         const roleKey = data?.role || "admin";
         const merged = mergePermissions(roleKey, data?.permissions);
         setUserRole(roleKey);
@@ -565,7 +568,8 @@ function MainApp({ user }: { user: User }) {
             salePrice: Number(raw.salePrice ?? raw.precioVenta ?? raw.costo ?? 0),
             supplier: raw.supplier ?? raw.proveedor ?? "",
             createdAt,
-            userId: raw.userId ?? user.uid,
+            companyId: raw.companyId ?? companyId,
+            createdBy: raw.createdBy ?? raw.userId,
           };
         });
 
@@ -895,8 +899,8 @@ function MainApp({ user }: { user: User }) {
         supplier: payload.supplier,
         proveedor: payload.supplier,
         createdAt: createdAtValue,
-        userId: user.uid,
         companyId,
+        createdBy: user.uid,
       });
 
       console.info("Producto guardado en Firestore", { id: docRef.id });
@@ -932,7 +936,6 @@ function MainApp({ user }: { user: User }) {
         salePrice: payload.salePrice,
         supplier: payload.supplier,
         proveedor: payload.supplier,
-        userId: user.uid,
         companyId,
       });
 
@@ -1300,7 +1303,6 @@ function MainApp({ user }: { user: User }) {
             currency={settings?.currency}
             productInsights={productInsights}
             canEditInventory={userPermissions.editInventory}
-            userId={user.uid}
           />
         )}
         {activePage === "finanzas" && (
